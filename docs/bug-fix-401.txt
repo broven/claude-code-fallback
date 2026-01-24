@@ -1,0 +1,40 @@
+# 修复 401 认证错误问题 (Bug Fix 401)
+
+## 问题描述
+配置 Claude Code 使用该代理时，访问官方 API 直接返回 401 Unauthorized 错误。
+
+## 问题分析
+**根本原因**：OAuth token 的认证头被错误转换。
+
+1. **Claude Code 的认证方式**：Claude Code 使用 OAuth Access Token (以 `sk-ant-oat` 开头)，通过 `Authorization: Bearer <token>` 头发送。
+2. **代理的错误处理**：代理之前将所有提取到的 token 都强制转换为 `x-api-key` 头转发给 Anthropic。
+3. **Anthropic API 行为**：Anthropic API 不接受在 `x-api-key` 中传递 OAuth token，因此返回 401。
+
+**错误流程**：
+```
+Claude Code (Authorization: Bearer token) -> Proxy -> (提取 token) -> Proxy (x-api-key: token) -> Anthropic -> 401 Error
+```
+
+## 修复方案
+修改了 `src/index.ts` 中的请求转发逻辑，使其能智能识别并保留原始的认证方式。
+
+### 代码变更
+1. **修改 `buildForwardHeaders` 函数**：
+   - 增加 `useAuthorizationHeader` 参数。
+   - 如果为 `true`，使用 `Authorization: Bearer` 格式转发。
+   - 如果为 `false`，保持原有的 `x-api-key` 格式转发。
+
+2. **更新请求处理逻辑**：
+   - 在处理请求前检测原始 Header 是否使用了 `Authorization`。
+   - 调用 `buildForwardHeaders` 时传入正确的认证模式。
+   - 移除了之前当没有 API Key 时直接返回 401 的拦截逻辑，确保即使没有 Key 也能进入 Fallback 流程。
+
+**修复后的流程**：
+```
+Claude Code (Authorization: Bearer token) -> Proxy -> (检测到 Auth 头) -> Proxy (Authorization: Bearer token) -> Anthropic -> 200 OK
+```
+
+## 验证结果
+- ✅ **Authorization Bearer 头**：正确原样转发，不再转换为 x-api-key。
+- ✅ **普通 API Key**：继续通过 x-api-key 头正确转发。
+- ✅ **Fallback 机制**：当 Upstream 返回 401 时，现在能正确触发 Fallback 流程，而不是被代理直接拦截。

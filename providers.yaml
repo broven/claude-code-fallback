@@ -1,0 +1,18 @@
+# Global Configuration
+debug: true
+
+# List of fallback providers. Tried in order.
+# providers:
+#   - name: "kesiyuan-free"
+#     baseUrl: "http://115.190.229.4:3000/v1/messages"
+#     apiKey: "sk-FJtfrCRGm5yszvboyO9rBEgySN3rOb6ScPyXTJgsvJ5Ehg2L"
+#     authHeader: "Authorization"
+    # headers:
+    #   HTTP-Referer: "https://github.com/broven/claude-code-fallback"
+    #   X-Title: "Claude Code Fallback Proxy"
+    # modelMapping:
+    #   # Map common Claude models to OpenRouter IDs
+    #   claude-3-5-sonnet-20240620: "anthropic/claude-3.5-sonnet"
+    #   claude-3-5-sonnet-latest: "anthropic/claude-3.5-sonnet"
+    #   claude-3-5-haiku-20241022: "anthropic/claude-3.5-haiku"
+    #   claude-3-opus-20240229: "anthropic/claude-3-opus"
