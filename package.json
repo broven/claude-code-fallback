@@ -1,0 +1,35 @@
+{
+  "name": "claude-code-fallback",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "start": "tsx src/index.ts",
+    "test": "tsx test/e2e.ts"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/broven/claude-code-fallback.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/broven/claude-code-fallback/issues"
+  },
+  "homepage": "https://github.com/broven/claude-code-fallback#readme",
+  "dependencies": {
+    "@hono/node-server": "^1.19.9",
+    "better-sqlite3": "^12.6.2",
+    "dotenv": "^17.2.3",
+    "hono": "^4.11.5",
+    "tsx": "^4.21.0",
+    "yaml": "^2.8.2"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/node": "^25.0.10",
+    "typescript": "^5.9.3"
+  }
+}

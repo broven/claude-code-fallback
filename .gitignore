@@ -1,0 +1,6 @@
+node_modules/
+*.log
+logs.db
+.claude/providers.yaml
+providers.yaml
+.claude/
