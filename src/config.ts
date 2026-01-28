@@ -1,7 +1,7 @@
 import { parse } from "yaml";
 import { readFile, access } from "fs/promises";
 import { constants } from "fs";
-import * as path from "path";
+import { getConfigPath, getDbPath } from "./utils/paths";
 
 export interface ProviderConfig {
   name: string;
@@ -28,16 +28,13 @@ export interface AppConfig {
 const DEFAULT_LOGGING_CONFIG: LoggingConfig = {
   enabled: true,
   logResponseBody: true,
-  dbPath: "./logs.db",
+  dbPath: getDbPath(),
   maxSavedMessages: 1000,
 };
 
-export async function loadConfig(): Promise<AppConfig> {
+export async function loadConfig(customConfigPath?: string): Promise<AppConfig> {
   try {
-    const configPath = path.resolve(
-      process.cwd(),
-      process.env.PROVIDERS_CONFIG_PATH || "providers.yaml",
-    );
+    const configPath = getConfigPath(customConfigPath);
 
     // Check if file exists
     try {

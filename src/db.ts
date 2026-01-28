@@ -1,5 +1,6 @@
 import Database from "better-sqlite3";
 import * as path from "path";
+import { getDbPath } from "./utils/paths";
 
 export interface RequestLog {
   requestId: string;
@@ -28,7 +29,7 @@ export interface LoggingConfig {
 const DEFAULT_CONFIG: LoggingConfig = {
   enabled: true,
   logResponseBody: true,
-  dbPath: "./logs.db",
+  dbPath: getDbPath(),
   maxSavedMessages: 1000,
 };
 
@@ -47,7 +48,9 @@ class LogDatabase {
       return;
     }
 
-    const dbPath = path.resolve(process.cwd(), this.config.dbPath);
+    const dbPath = path.isAbsolute(this.config.dbPath)
+      ? this.config.dbPath
+      : path.resolve(process.cwd(), this.config.dbPath);
     this.db = new Database(dbPath);
 
     // Create table

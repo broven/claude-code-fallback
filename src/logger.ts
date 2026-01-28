@@ -1,9 +1,9 @@
 import { appendFile } from "fs/promises";
-import * as path from "path";
+import { getLogPath } from "./utils/paths";
 
 export class Logger {
   private enabled: boolean = false;
-  private logFile: string = "debug.log";
+  private logFile: string = getLogPath();
 
   constructor(enabled: boolean) {
     this.enabled = enabled;
