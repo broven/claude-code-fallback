@@ -1,108 +1,54 @@
-import { parse } from "yaml";
-import { readFile, access } from "fs/promises";
-import { constants } from "fs";
-import { getConfigPath, getDbPath } from "./utils/paths";
+import { Bindings, AppConfig, ProviderConfig } from './types';
 
-export interface ProviderConfig {
-  name: string;
-  baseUrl: string;
-  apiKey: string;
-  authHeader?: string; // Default: 'x-api-key'
-  headers?: Record<string, string>;
-  modelMapping?: Record<string, string>;
-}
+const KV_KEY = 'providers';
 
-export interface LoggingConfig {
-  enabled: boolean;
-  logResponseBody: boolean;
-  dbPath: string;
-  maxSavedMessages: number;
-}
+/**
+ * Load configuration from KV storage.
+ */
+export async function loadConfig(env: Bindings): Promise<AppConfig> {
+  const debug = env.DEBUG === 'true';
+  let providers: ProviderConfig[] = [];
 
-export interface AppConfig {
-  debug: boolean;
-  providers: ProviderConfig[];
-  logging: LoggingConfig;
-}
-
-const DEFAULT_LOGGING_CONFIG: LoggingConfig = {
-  enabled: true,
-  logResponseBody: true,
-  dbPath: getDbPath(),
-  maxSavedMessages: 1000,
-};
-
-export async function loadConfig(customConfigPath?: string): Promise<AppConfig> {
   try {
-    const configPath = getConfigPath(customConfigPath);
-
-    // Check if file exists
-    try {
-      await access(configPath, constants.F_OK);
-    } catch {
-      console.log(
-        "[Config] providers.yaml not found, no fallback providers loaded.",
-      );
-      return { debug: false, providers: [], logging: DEFAULT_LOGGING_CONFIG };
-    }
-
-    const fileContent = await readFile(configPath, "utf-8");
-    const parsed = parse(fileContent);
-
-    let providers: ProviderConfig[] = [];
-    let debug = false;
-    let logging: LoggingConfig = { ...DEFAULT_LOGGING_CONFIG };
-
-    if (Array.isArray(parsed)) {
-      // Backward compatibility: Array of providers
-      providers = parsed;
-    } else if (typeof parsed === 'object' && parsed !== null) {
-      // New format: Object with debug flag and providers list
-      debug = !!parsed.debug;
-      if (Array.isArray(parsed.providers)) {
-        providers = parsed.providers;
+    const configJson = await env.CONFIG_KV.get(KV_KEY);
+    if (configJson) {
+      const parsed = JSON.parse(configJson);
+      if (Array.isArray(parsed)) {
+        // Validate providers
+        for (const p of parsed) {
+          if (!p.name || !p.baseUrl || !p.apiKey) {
+            console.warn(
+              `[Config] Skipping invalid provider: ${JSON.stringify(p)} - missing name, baseUrl, or apiKey`
+            );
+            continue;
+          }
+          providers.push(p as ProviderConfig);
+        }
       } else {
-        console.error("[Config] providers.yaml 'providers' field must be an array");
+        console.error('[Config] Config in KV must be a JSON array');
       }
-
-      // Parse logging config
-      if (parsed.logging && typeof parsed.logging === 'object') {
-        logging = {
-          enabled: parsed.logging.enabled ?? DEFAULT_LOGGING_CONFIG.enabled,
-          logResponseBody: parsed.logging.logResponseBody ?? DEFAULT_LOGGING_CONFIG.logResponseBody,
-          dbPath: parsed.logging.dbPath ?? DEFAULT_LOGGING_CONFIG.dbPath,
-          maxSavedMessages: parsed.logging.maxSavedMessages ?? DEFAULT_LOGGING_CONFIG.maxSavedMessages,
-        };
-      }
-    } else {
-      console.error("[Config] providers.yaml must be an array of providers or an object with providers array");
-      return { debug: false, providers: [], logging: DEFAULT_LOGGING_CONFIG };
     }
-
-    // Validate providers
-    const validProviders: ProviderConfig[] = [];
-    for (const p of providers) {
-      if (!p.name || !p.baseUrl || !p.apiKey) {
-        console.warn(
-          `[Config] Skipping invalid provider config: ${JSON.stringify(p)} - missing name, baseUrl, or apiKey`,
-        );
-        continue;
-      }
-      validProviders.push(p as ProviderConfig);
-    }
-
-    console.log(
-      `[Config] Loaded ${validProviders.length} providers from providers.yaml. Debug mode: ${debug}. Logging: ${logging.enabled}`,
-    );
-    return { debug, providers: validProviders, logging };
-  } catch (error) {
-    console.error("[Config] Error loading providers.yaml:", error);
-    return { debug: false, providers: [], logging: DEFAULT_LOGGING_CONFIG };
+  } catch (e) {
+    console.error('[Config] Failed to load config from KV:', e);
   }
+
+  if (debug) {
+    console.log(`[Config] Loaded ${providers.length} providers. Debug: ${debug}`);
+  }
+
+  return { debug, providers };
 }
 
-// Kept for backward compatibility if needed, but internally we switch to loadConfig
-export async function loadProviders(): Promise<ProviderConfig[]> {
-  const config = await loadConfig();
-  return config.providers;
+/**
+ * Save provider configuration to KV storage.
+ */
+export async function saveConfig(env: Bindings, providers: ProviderConfig[]): Promise<void> {
+  await env.CONFIG_KV.put(KV_KEY, JSON.stringify(providers));
+}
+
+/**
+ * Get raw config JSON from KV storage.
+ */
+export async function getRawConfig(env: Bindings): Promise<string> {
+  return (await env.CONFIG_KV.get(KV_KEY)) || '[]';
 }

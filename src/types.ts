@@ -1,0 +1,28 @@
+/**
+ * Provider configuration for fallback routing
+ */
+export interface ProviderConfig {
+  name: string;
+  baseUrl: string;
+  apiKey: string;
+  authHeader?: string; // Default: 'x-api-key'
+  headers?: Record<string, string>;
+  modelMapping?: Record<string, string>;
+}
+
+/**
+ * Application configuration
+ */
+export interface AppConfig {
+  debug: boolean;
+  providers: ProviderConfig[];
+}
+
+/**
+ * Cloudflare Workers environment bindings
+ */
+export interface Bindings {
+  DEBUG: string;
+  ADMIN_TOKEN: string;
+  CONFIG_KV: KVNamespace;
+}

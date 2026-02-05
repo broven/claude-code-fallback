@@ -1,0 +1,48 @@
+/**
+ * Filter out specific headers by key names (case-insensitive).
+ */
+export function filterHeaders(
+  headers: Record<string, string>,
+  keys: string[]
+): Record<string, string> {
+  const excluded = new Set(keys.map((k) => k.toLowerCase()));
+  return Object.fromEntries(
+    Object.entries(headers).filter(([key]) => !excluded.has(key.toLowerCase()))
+  );
+}
+
+/**
+ * Filter out debug headers before forwarding to upstream.
+ */
+export function filterHeadersDebugOption(
+  headers: Record<string, string>
+): Record<string, string> {
+  return filterHeaders(headers, ['x-ccfallback-debug-skip-anthropic']);
+}
+
+/**
+ * Clean hop-by-hop headers for response forwarding.
+ * Removes headers that should not be forwarded to the client.
+ */
+export function cleanHeaders(headers: Headers): Record<string, string> {
+  const result: Record<string, string> = {};
+  const unsafeHeaders = [
+    'content-length',
+    'content-encoding',
+    'transfer-encoding',
+    'connection',
+    'keep-alive',
+    'te',
+    'trailer',
+    'upgrade',
+    'host',
+  ];
+
+  headers.forEach((value, key) => {
+    if (!unsafeHeaders.includes(key.toLowerCase())) {
+      result[key] = value;
+    }
+  });
+
+  return result;
+}

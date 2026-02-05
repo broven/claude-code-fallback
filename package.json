@@ -1,23 +1,12 @@
 {
   "name": "claude-code-fallback",
-  "version": "0.1.0",
-  "description": "Fallback proxy for Claude Code — automatically routes to alternative providers when Anthropic API is unavailable",
-  "main": "./dist/index.js",
-  "types": "./dist/index.d.ts",
-  "bin": {
-    "claude-code-fallback": "./dist/cli.js"
-  },
-  "files": [
-    "dist",
-    "providers.yaml.example",
-    "README.md"
-  ],
+  "version": "0.2.0",
+  "description": "Cloudflare Workers fallback proxy for Claude Code - routes to alternative providers when Anthropic API is unavailable",
+  "type": "module",
   "scripts": {
-    "build": "tsc",
-    "dev": "tsx src/cli.ts",
-    "start": "tsx src/cli.ts",
-    "test": "tsx test/e2e.ts",
-    "prepublishOnly": "npm run build"
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "tail": "wrangler tail"
   },
   "repository": {
     "type": "git",
@@ -29,27 +18,21 @@
     "anthropic",
     "proxy",
     "fallback",
+    "cloudflare-workers",
     "openrouter"
   ],
   "author": "broven",
   "license": "ISC",
-  "type": "commonjs",
   "bugs": {
     "url": "https://github.com/broven/claude-code-fallback/issues"
   },
   "homepage": "https://github.com/broven/claude-code-fallback#readme",
   "dependencies": {
-    "@hono/node-server": "^1.19.9",
-    "better-sqlite3": "^12.6.2",
-    "commander": "^13.1.0",
-    "dotenv": "^17.2.3",
-    "hono": "^4.11.5",
-    "yaml": "^2.8.2"
+    "hono": "^4.11.5"
   },
   "devDependencies": {
-    "@types/better-sqlite3": "^7.6.13",
-    "@types/node": "^25.0.10",
-    "tsx": "^4.21.0",
-    "typescript": "^5.9.3"
+    "@cloudflare/workers-types": "^4.20240117.0",
+    "typescript": "^5.3.3",
+    "wrangler": "^3.22.0"
   }
 }

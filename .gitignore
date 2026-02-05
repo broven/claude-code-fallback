@@ -5,3 +5,4 @@ logs.db
 .claude/providers.yaml
 providers.yaml
 .claude/
+.env

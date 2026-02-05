@@ -1,4 +1,158 @@
-export { createServer } from './server';
-export type { ServerOptions, ServerInstance } from './server';
-export { loadConfig } from './config';
-export type { AppConfig, ProviderConfig, LoggingConfig } from './config';
+import { Hono } from 'hono';
+import { Bindings } from './types';
+import { loadConfig } from './config';
+import { filterHeadersDebugOption, cleanHeaders } from './utils/headers';
+import { tryProvider } from './utils/provider';
+import { authMiddleware, adminPage, getConfig, postConfig } from './admin';
+
+const app = new Hono<{ Bindings: Bindings }>();
+
+// Health check endpoint
+app.get('/', async (c) => {
+  const config = await loadConfig(c.env);
+  return c.text(
+    `Claude Code Fallback Proxy (Workers) is running! Loaded ${config.providers.length} fallback provider(s).`
+  );
+});
+
+// Admin routes
+app.get('/admin', authMiddleware, adminPage);
+app.get('/admin/config', authMiddleware, getConfig);
+app.post('/admin/config', authMiddleware, postConfig);
+
+// Main proxy endpoint
+app.post('/v1/messages', async (c) => {
+  const config = await loadConfig(c.env);
+  const body = await c.req.json();
+  const headers = c.req.header();
+  const skipAnthropic = headers['x-ccfallback-debug-skip-anthropic'] === '1';
+
+  if (config.debug) {
+    console.log('[Proxy] Incoming Request', {
+      method: 'POST',
+      url: c.req.url,
+      model: body.model,
+    });
+  }
+
+  // --- Attempt 1: Primary Anthropic API ---
+  let lastErrorResponse: Response | null = null;
+
+  if (!skipAnthropic) {
+    try {
+      console.log(
+        `[Proxy] Forwarding request to Primary Anthropic API (Model: ${body.model})`
+      );
+
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 30000);
+      const filteredHeaders = filterHeadersDebugOption(headers);
+
+      const response = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: filteredHeaders,
+        body: JSON.stringify(body),
+        signal: controller.signal,
+      });
+
+      clearTimeout(timeoutId);
+
+      if (response.ok) {
+        console.log('[Proxy] Anthropic API request successful');
+        return new Response(response.body, {
+          status: response.status,
+          headers: cleanHeaders(response.headers),
+        });
+      }
+
+      const status = response.status;
+      const errorBody = await response.text();
+      lastErrorResponse = new Response(errorBody, {
+        status,
+        headers: cleanHeaders(response.headers),
+      });
+
+      console.log(`[Proxy] Anthropic API failed with status ${status}`);
+
+      // Only fallback on specific error codes: 401, 403, 429, 5xx
+      if (status !== 401 && status !== 403 && status !== 429 && status < 500) {
+        console.log(
+          `[Proxy] Error ${status} is not eligible for fallback. Returning error.`
+        );
+        return lastErrorResponse;
+      }
+    } catch (error: any) {
+      console.error(
+        '[Proxy] Network error or timeout contacting Anthropic:',
+        error.message
+      );
+    }
+  }
+
+  // --- Attempt 2+: Fallback Providers ---
+  if (config.providers.length === 0) {
+    console.log('[Proxy] No fallback providers configured.');
+    if (lastErrorResponse) {
+      return lastErrorResponse;
+    }
+    return c.json(
+      {
+        error: {
+          type: 'proxy_error',
+          message: 'Primary API failed and no fallbacks configured',
+        },
+      },
+      502
+    );
+  }
+
+  for (const provider of config.providers) {
+    try {
+      const response = await tryProvider(
+        provider,
+        body,
+        headers as Record<string, string>
+      );
+
+      if (response.ok) {
+        console.log(`[Proxy] Provider ${provider.name} request successful`);
+        return new Response(response.body, {
+          status: response.status,
+          headers: cleanHeaders(response.headers),
+        });
+      }
+
+      const status = response.status;
+      const errorText = await response.text();
+      console.log(
+        `[Proxy] Provider ${provider.name} failed with status ${status}`
+      );
+
+      lastErrorResponse = new Response(errorText, {
+        status,
+        headers: cleanHeaders(response.headers),
+      });
+    } catch (error: any) {
+      console.error(`[Proxy] Provider ${provider.name} error:`, error.message);
+    }
+  }
+
+  // All failed
+  console.log('[Proxy] All providers failed.');
+
+  if (lastErrorResponse) {
+    return lastErrorResponse;
+  }
+
+  return c.json(
+    {
+      error: {
+        type: 'fallback_exhausted',
+        message: 'All API providers failed',
+      },
+    },
+    502
+  );
+});
+
+export default app;
