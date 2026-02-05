@@ -9,6 +9,9 @@ This document describes all npm scripts available in the project.
 | `dev` | `wrangler dev` | Start local Cloudflare Workers development server on port 8787 |
 | `deploy` | `wrangler deploy` | Deploy to production Cloudflare Workers |
 | `tail` | `wrangler tail` | Stream live logs from production Cloudflare Workers |
+| `test` | `vitest run` | Run test suite once |
+| `test:watch` | `vitest` | Run tests in watch mode (reruns on file changes) |
+| `test:coverage` | `vitest run --coverage` | Run tests with coverage report (requires 80%+ coverage) |
 
 ## TypeScript
 
@@ -53,20 +56,37 @@ npx tsc --noEmit
 # Exit 1 if type errors found
 ```
 
+### Run Tests
+
+```bash
+# Run all tests once
+npm test
+
+# Run tests in watch mode (useful during development)
+npm run test:watch
+
+# Run with coverage report
+npm run test:coverage
+# Generates coverage/ directory with detailed HTML report
+```
+
 ## Pre-Commit Checks
 
 Before committing code:
 
 ```bash
-# 1. Type check
+# 1. Run tests
+npm test
+
+# 2. Type check
 npx tsc --noEmit
 
-# 2. Run locally to verify
+# 3. Run locally to verify
 npm run dev &
 # Test the admin panel and proxy endpoints
 kill %1
 
-# 3. Commit changes
+# 4. Commit changes
 git add .
 git commit -m "message"
 ```
@@ -77,6 +97,12 @@ These scripts can be integrated into CI/CD pipelines:
 
 ```yaml
 # Example GitHub Actions
+- name: Run Tests
+  run: npm test
+
+- name: Test Coverage
+  run: npm run test:coverage
+
 - name: Type Check
   run: npx tsc --noEmit
 

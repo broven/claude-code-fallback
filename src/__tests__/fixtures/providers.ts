@@ -1,0 +1,61 @@
+import { ProviderConfig } from '../../types';
+
+/**
+ * Test fixtures for provider configurations
+ */
+
+export const validProvider: ProviderConfig = {
+  name: 'openrouter',
+  baseUrl: 'https://openrouter.ai/api/v1/chat/completions',
+  apiKey: 'sk-test-key-123',
+  authHeader: 'Authorization',
+  modelMapping: {
+    'claude-sonnet-4-20250514': 'anthropic/claude-sonnet-4',
+    'claude-3-opus-20240229': 'anthropic/claude-3-opus',
+  },
+};
+
+export const minimalProvider: ProviderConfig = {
+  name: 'minimal-provider',
+  baseUrl: 'https://api.example.com/v1/messages',
+  apiKey: 'test-api-key',
+};
+
+export const providerWithCustomHeaders: ProviderConfig = {
+  name: 'custom-headers-provider',
+  baseUrl: 'https://api.example.com/v1/messages',
+  apiKey: 'test-api-key',
+  authHeader: 'x-api-key',
+  headers: {
+    'X-Custom-Header': 'custom-value',
+    'X-Another-Header': 'another-value',
+  },
+};
+
+export const providerWithBearerToken: ProviderConfig = {
+  name: 'bearer-provider',
+  baseUrl: 'https://api.example.com/v1/messages',
+  apiKey: 'Bearer sk-already-prefixed',
+  authHeader: 'Authorization',
+};
+
+export const invalidProviderMissingName = {
+  baseUrl: 'https://api.example.com/v1/messages',
+  apiKey: 'test-api-key',
+};
+
+export const invalidProviderMissingUrl = {
+  name: 'no-url-provider',
+  apiKey: 'test-api-key',
+};
+
+export const invalidProviderMissingApiKey = {
+  name: 'no-apikey-provider',
+  baseUrl: 'https://api.example.com/v1/messages',
+};
+
+export const multipleProviders: ProviderConfig[] = [
+  validProvider,
+  minimalProvider,
+  providerWithCustomHeaders,
+];

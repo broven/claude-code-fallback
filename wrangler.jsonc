@@ -10,13 +10,11 @@
   "kv_namespaces": [
     {
       "binding": "CONFIG_KV",
-      "id": "your-kv-namespace-id",
+      "id": "688e2d884dc34e238b4a298311102090",
     },
   ],
-
   "vars": {
     "DEBUG": "false",
-    "ADMIN_TOKEN": "123456",
     // ADMIN_TOKEN should be set via Cloudflare Dashboard
     // Workers & Pages -> Your Worker -> Settings -> Variables and Secrets
   },

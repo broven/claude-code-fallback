@@ -9,6 +9,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - **Type Check**: `npx tsc --noEmit`
 - **Tail Logs**: `npm run tail` (streams production logs from Cloudflare)
 - **Set Secrets**: `npx wrangler secret put ADMIN_TOKEN` (set authentication token)
+- **Test**: `npm test` (runs test suite with Vitest)
+- **Test Watch**: `npm run test:watch` (runs tests in watch mode)
+- **Test Coverage**: `npm run test:coverage` (runs tests with coverage report)
 
 ## Architecture
 
@@ -132,3 +135,69 @@ Main types in `src/types.ts`:
 - `ProviderConfig` — Single provider configuration
 - `AppConfig` — Runtime config with debug flag and provider list
 - `Bindings` — Worker environment bindings (DEBUG, ADMIN_TOKEN, CONFIG_KV)
+
+## Testing
+
+The project has a comprehensive test suite with 142 tests and 99%+ coverage.
+
+### Test Structure
+
+```
+src/__tests__/
+  fixtures/         # Test data and mock responses
+    providers.ts    # Provider configurations
+    requests.ts     # API request/response fixtures
+  mocks/            # Mock implementations
+    kv.ts          # Mock KV namespace
+    fetch.ts       # Mock fetch utilities
+  utils/           # Unit tests for utilities
+    headers.test.ts
+    provider.test.ts
+  config.test.ts   # Config module tests
+  admin.test.ts    # Admin panel tests
+  index.test.ts    # Integration tests
+```
+
+### Running Tests
+
+```bash
+# Run all tests once
+npm test
+
+# Run tests in watch mode (reruns on file changes)
+npm run test:watch
+
+# Run with coverage report
+npm run test:coverage
+```
+
+### Test Coverage
+
+The test suite maintains high coverage across all modules:
+- **Statements**: 99.28%
+- **Branches**: 98.48%
+- **Functions**: 94.73%
+- **Lines**: 100%
+
+Coverage thresholds are enforced at 80% for all metrics.
+
+### Writing Tests
+
+Tests use Vitest with Cloudflare Workers pool for accurate Workers environment simulation:
+
+```typescript
+import { describe, it, expect } from 'vitest';
+import { createMockBindings } from './__tests__/mocks/kv';
+
+describe('my feature', () => {
+  it('should work correctly', async () => {
+    const env = createMockBindings();
+    // Test implementation
+  });
+});
+```
+
+Key testing utilities:
+- `createMockBindings()` — Creates mock Worker bindings (KV, env vars)
+- `createMockResponse()` — Creates mock Response objects
+- Test fixtures in `__tests__/fixtures/` — Reusable test data
