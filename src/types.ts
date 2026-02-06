@@ -25,4 +25,5 @@ export interface Bindings {
   DEBUG: string;
   ADMIN_TOKEN: string;
   CONFIG_KV: KVNamespace;
+  COOLDOWN_DURATION?: string; // Optional, default to 300s
 }
