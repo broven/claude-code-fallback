@@ -42,6 +42,7 @@ export async function tryProvider(
       'content-length',
       'x-api-key',
       'authorization',
+      'x-claude-code-fallback-api-key',
     ];
 
     // Build request headers

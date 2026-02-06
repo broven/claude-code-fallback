@@ -16,6 +16,7 @@ export interface ProviderConfig {
 export interface AppConfig {
   debug: boolean;
   providers: ProviderConfig[];
+  allowedTokens: string[];
 }
 
 /**

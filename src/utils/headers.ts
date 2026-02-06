@@ -17,7 +17,10 @@ export function filterHeaders(
 export function filterHeadersDebugOption(
   headers: Record<string, string>
 ): Record<string, string> {
-  return filterHeaders(headers, ['x-ccfallback-debug-skip-anthropic']);
+  return filterHeaders(headers, [
+    'x-ccfallback-debug-skip-anthropic',
+    'x-claude-code-fallback-api-key',
+  ]);
 }
 
 /**
