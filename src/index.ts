@@ -1,38 +1,43 @@
-import { Hono } from 'hono';
-import { Bindings } from './types';
-import { loadConfig } from './config';
-import { filterHeadersDebugOption, cleanHeaders } from './utils/headers';
-import { tryProvider } from './utils/provider';
-import { authMiddleware, adminPage, getConfig, postConfig } from './admin';
-import { isProviderAvailable, markProviderFailed, markProviderSuccess } from './utils/circuit-breaker';
+import { Hono } from "hono";
+import { Bindings } from "./types";
+import { loadConfig } from "./config";
+import { filterHeadersDebugOption, cleanHeaders } from "./utils/headers";
+import { tryProvider } from "./utils/provider";
+import { authMiddleware, adminPage, getConfig, postConfig } from "./admin";
+import {
+  isProviderAvailable,
+  markProviderFailed,
+  markProviderSuccess,
+} from "./utils/circuit-breaker";
 
 const app = new Hono<{ Bindings: Bindings }>();
 
 // Health check endpoint
-app.get('/', async (c) => {
+app.get("/", async (c) => {
   const config = await loadConfig(c.env);
   return c.text(
-    `Claude Code Fallback Proxy (Workers) is running! Loaded ${config.providers.length} fallback provider(s).`
+    `Claude Code Fallback Proxy (Workers) is running! Loaded ${config.providers.length} fallback provider(s).`,
   );
 });
 
 // Admin routes
-app.get('/admin', authMiddleware, adminPage);
-app.get('/admin/config', authMiddleware, getConfig);
-app.post('/admin/config', authMiddleware, postConfig);
+app.get("/admin", authMiddleware, adminPage);
+app.get("/admin/config", authMiddleware, getConfig);
+app.post("/admin/config", authMiddleware, postConfig);
 
 // Main proxy endpoint
-app.post('/v1/messages', async (c) => {
+app.post("/v1/messages", async (c) => {
   const config = await loadConfig(c.env);
   const body = await c.req.json();
   const headers = c.req.header();
-  const skipAnthropic = headers['x-ccfallback-debug-skip-anthropic'] === '1';
+  const skipAnthropic =
+    headers["x-claude-code-fallback-debug-skip-anthropic"] === "1";
   // Get cooldown from env or default to 300 seconds (5 minutes)
-  const cooldownDuration = parseInt(c.env.COOLDOWN_DURATION || '300', 10);
+  const cooldownDuration = parseInt(c.env.COOLDOWN_DURATION || "300", 10);
 
   if (config.debug) {
-    console.log('[Proxy] Incoming Request', {
-      method: 'POST',
+    console.log("[Proxy] Incoming Request", {
+      method: "POST",
       url: c.req.url,
       model: body.model,
     });
@@ -40,7 +45,7 @@ app.post('/v1/messages', async (c) => {
 
   // --- Attempt 1: Primary Anthropic API ---
   let lastErrorResponse: Response | null = null;
-  const anthropicName = 'anthropic-primary';
+  const anthropicName = "anthropic-primary";
 
   if (!skipAnthropic) {
     // Check circuit breaker
@@ -51,15 +56,15 @@ app.post('/v1/messages', async (c) => {
     } else {
       try {
         console.log(
-          `[Proxy] Forwarding request to Primary Anthropic API (Model: ${body.model})`
+          `[Proxy] Forwarding request to Primary Anthropic API (Model: ${body.model})`,
         );
 
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), 30000);
         const filteredHeaders = filterHeadersDebugOption(headers);
 
-        const response = await fetch('https://api.anthropic.com/v1/messages', {
-          method: 'POST',
+        const response = await fetch("https://api.anthropic.com/v1/messages", {
+          method: "POST",
           headers: filteredHeaders,
           body: JSON.stringify(body),
           signal: controller.signal,
@@ -68,7 +73,7 @@ app.post('/v1/messages', async (c) => {
         clearTimeout(timeoutId);
 
         if (response.ok) {
-          console.log('[Proxy] Anthropic API request successful');
+          console.log("[Proxy] Anthropic API request successful");
           await markProviderSuccess(anthropicName, c.env);
           return new Response(response.body, {
             status: response.status,
@@ -86,20 +91,24 @@ app.post('/v1/messages', async (c) => {
         console.log(`[Proxy] Anthropic API failed with status ${status}`);
 
         // Only fallback on specific error codes: 401, 403, 429, 5xx
-        if (status !== 401 && status !== 403 && status !== 429 && status < 500) {
+        if (
+          status !== 401 &&
+          status !== 403 &&
+          status !== 429 &&
+          status < 500
+        ) {
           console.log(
-            `[Proxy] Error ${status} is not eligible for fallback. Returning error.`
+            `[Proxy] Error ${status} is not eligible for fallback. Returning error.`,
           );
           return lastErrorResponse;
         }
 
         // Mark failed
         await markProviderFailed(anthropicName, cooldownDuration, c.env);
-
       } catch (error: any) {
         console.error(
-          '[Proxy] Network error or timeout contacting Anthropic:',
-          error.message
+          "[Proxy] Network error or timeout contacting Anthropic:",
+          error.message,
         );
         await markProviderFailed(anthropicName, cooldownDuration, c.env);
       }
@@ -108,33 +117,35 @@ app.post('/v1/messages', async (c) => {
 
   // --- Attempt 2+: Fallback Providers ---
   if (config.providers.length === 0) {
-    console.log('[Proxy] No fallback providers configured.');
+    console.log("[Proxy] No fallback providers configured.");
     if (lastErrorResponse) {
       return lastErrorResponse;
     }
     return c.json(
       {
         error: {
-          type: 'proxy_error',
-          message: 'Primary API failed and no fallbacks configured',
+          type: "proxy_error",
+          message: "Primary API failed and no fallbacks configured",
         },
       },
-      502
+      502,
     );
   }
 
   for (const provider of config.providers) {
     const isAvailable = await isProviderAvailable(provider.name, c.env);
     if (!isAvailable) {
-       console.log(`[Proxy] Skipping provider ${provider.name} (Circuit Breaker active)`);
-       continue;
+      console.log(
+        `[Proxy] Skipping provider ${provider.name} (Circuit Breaker active)`,
+      );
+      continue;
     }
 
     try {
       const response = await tryProvider(
         provider,
         body,
-        headers as Record<string, string>
+        headers as Record<string, string>,
       );
 
       if (response.ok) {
@@ -149,7 +160,7 @@ app.post('/v1/messages', async (c) => {
       const status = response.status;
       const errorText = await response.text();
       console.log(
-        `[Proxy] Provider ${provider.name} failed with status ${status}`
+        `[Proxy] Provider ${provider.name} failed with status ${status}`,
       );
 
       await markProviderFailed(provider.name, cooldownDuration, c.env);
@@ -165,7 +176,7 @@ app.post('/v1/messages', async (c) => {
   }
 
   // All failed
-  console.log('[Proxy] All providers failed.');
+  console.log("[Proxy] All providers failed.");
 
   if (lastErrorResponse) {
     return lastErrorResponse;
@@ -174,11 +185,11 @@ app.post('/v1/messages', async (c) => {
   return c.json(
     {
       error: {
-        type: 'fallback_exhausted',
-        message: 'All API providers failed',
+        type: "fallback_exhausted",
+        message: "All API providers failed",
       },
     },
-    502
+    502,
   );
 });
 
