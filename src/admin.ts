@@ -199,7 +199,7 @@ export async function adminPage(c: Context<{ Bindings: Bindings }>) {
     <div class="card">
       <h3>Configuration Instructions</h3>
       <p>Configure Claude Code to use this proxy with your token:</p>
-      <div class="code-block">export ANTHROPIC_CUSTOM_HEADERS="x-claude-code-fallback-api-key: [YOUR_TOKEN]"
+      <div class="code-block">export ANTHROPIC_CUSTOM_HEADERS="x-ccf-api-key: [YOUR_TOKEN]"
 export ANTHROPIC_BASE_URL="${escapeHtml(workerBaseUrl)}"</div>
 
       <h3 style="margin-top: 20px;">Allowed Tokens</h3>

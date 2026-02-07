@@ -1,17 +1,19 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import app from '../index';
-import { createMockBindings } from './mocks/kv';
-import { validMessageRequest, successResponse } from './fixtures/requests';
-import { createSuccessResponse } from './mocks/fetch';
-import { validProvider } from './fixtures/providers';
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import app from "../index";
+import { createMockBindings } from "./mocks/kv";
+import { validMessageRequest, successResponse } from "./fixtures/requests";
+import { createSuccessResponse } from "./mocks/fetch";
+import { validProvider } from "./fixtures/providers";
 
-describe('Proxy Authentication', () => {
+describe("Proxy Authentication", () => {
   const originalFetch = globalThis.fetch;
 
   beforeEach(() => {
-    vi.spyOn(console, 'log').mockImplementation(() => {});
-    vi.spyOn(console, 'error').mockImplementation(() => {});
-    globalThis.fetch = vi.fn().mockResolvedValue(createSuccessResponse(successResponse));
+    vi.spyOn(console, "log").mockImplementation(() => {});
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    globalThis.fetch = vi
+      .fn()
+      .mockResolvedValue(createSuccessResponse(successResponse));
   });
 
   afterEach(() => {
@@ -20,19 +22,19 @@ describe('Proxy Authentication', () => {
   });
 
   function createProxyRequest(headers: Record<string, string> = {}) {
-    return new Request('http://localhost/v1/messages', {
-      method: 'POST',
+    return new Request("http://localhost/v1/messages", {
+      method: "POST",
       headers: {
-        'Content-Type': 'application/json',
+        "Content-Type": "application/json",
         ...headers,
       },
       body: JSON.stringify(validMessageRequest),
     });
   }
 
-  it('allows request when no tokens are configured', async () => {
+  it("allows request when no tokens are configured", async () => {
     const env = createMockBindings({
-      kvData: { 
+      kvData: {
         providers: JSON.stringify([validProvider]),
         // No allowed_tokens set
       },
@@ -44,11 +46,11 @@ describe('Proxy Authentication', () => {
     expect(response.status).toBe(200);
   });
 
-  it('blocks request when tokens are configured but header is missing', async () => {
+  it("blocks request when tokens are configured but header is missing", async () => {
     const env = createMockBindings({
-      kvData: { 
+      kvData: {
         providers: JSON.stringify([validProvider]),
-        allowed_tokens: JSON.stringify(['valid-token']),
+        allowed_tokens: JSON.stringify(["valid-token"]),
       },
     });
     const request = createProxyRequest(); // No auth header
@@ -59,21 +61,21 @@ describe('Proxy Authentication', () => {
     expect(response.status).toBe(401);
     expect(data).toEqual({
       error: {
-        type: 'authentication_error',
-        message: 'Invalid or missing x-claude-code-fallback-api-key',
+        type: "authentication_error",
+        message: "Invalid or missing x-ccf-api-key",
       },
     });
   });
 
-  it('blocks request when tokens are configured and header is invalid', async () => {
+  it("blocks request when tokens are configured and header is invalid", async () => {
     const env = createMockBindings({
-      kvData: { 
+      kvData: {
         providers: JSON.stringify([validProvider]),
-        allowed_tokens: JSON.stringify(['valid-token']),
+        allowed_tokens: JSON.stringify(["valid-token"]),
       },
     });
     const request = createProxyRequest({
-      'x-claude-code-fallback-api-key': 'invalid-token',
+      "x-ccf-api-key": "invalid-token",
     });
 
     const response = await app.fetch(request, env);
@@ -81,15 +83,15 @@ describe('Proxy Authentication', () => {
     expect(response.status).toBe(401);
   });
 
-  it('allows request when tokens are configured and valid header is provided', async () => {
+  it("allows request when tokens are configured and valid header is provided", async () => {
     const env = createMockBindings({
-      kvData: { 
+      kvData: {
         providers: JSON.stringify([validProvider]),
-        allowed_tokens: JSON.stringify(['valid-token', 'another-token']),
+        allowed_tokens: JSON.stringify(["valid-token", "another-token"]),
       },
     });
     const request = createProxyRequest({
-      'x-claude-code-fallback-api-key': 'another-token',
+      "x-ccf-api-key": "another-token",
     });
 
     const response = await app.fetch(request, env);

@@ -34,19 +34,18 @@ app.post("/v1/messages", async (c) => {
   const config = await loadConfig(c.env);
   const body = await c.req.json();
   const headers = c.req.header();
-  const skipAnthropic =
-    headers["x-claude-code-fallback-debug-skip-anthropic"] === "1";
+  const skipAnthropic = headers["x-ccf-debug-skip-anthropic"] === "1";
 
   // Check for authentication if tokens are configured
   if (config.allowedTokens && config.allowedTokens.length > 0) {
-    const authKey = headers["x-claude-code-fallback-api-key"];
+    const authKey = headers["x-ccf-api-key"];
     if (!authKey || !config.allowedTokens.includes(authKey)) {
       console.log("[Proxy] Unauthorized request - missing or invalid API key");
       return c.json(
         {
           error: {
             type: "authentication_error",
-            message: "Invalid or missing x-claude-code-fallback-api-key",
+            message: "Invalid or missing x-ccf-api-key",
           },
         },
         401,
@@ -140,7 +139,6 @@ app.post("/v1/messages", async (c) => {
         body,
         headers as Record<string, string>,
       );
-
       if (response.ok) {
         console.log(`[Proxy] Provider ${provider.name} request successful`);
         return new Response(response.body, {
