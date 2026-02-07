@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { loadConfig, saveConfig, getRawConfig } from '../config';
+import { loadConfig, saveConfig, getRawConfig, saveCooldown, getRawCooldown } from '../config';
 import { createMockBindings } from './mocks/kv';
 import {
   validProvider,
@@ -265,6 +265,39 @@ describe('loadConfig', () => {
       );
     });
   });
+
+  describe('cooldown configuration', () => {
+    it('uses default cooldown when not in KV', async () => {
+      const env = createMockBindings();
+      // Mock COOLDOWN_DURATION in env if needed, though createMockBindings should handle defaults
+      env.COOLDOWN_DURATION = '300';
+
+      const config = await loadConfig(env);
+
+      expect(config.cooldownDuration).toBe(300);
+    });
+
+    it('uses KV cooldown when available', async () => {
+      const env = createMockBindings({
+        kvData: { cooldown_duration: '600' }
+      });
+
+      const config = await loadConfig(env);
+
+      expect(config.cooldownDuration).toBe(600);
+    });
+
+    it('falls back to env default when KV value is invalid', async () => {
+      const env = createMockBindings({
+        kvData: { cooldown_duration: 'invalid-number' }
+      });
+      env.COOLDOWN_DURATION = '300';
+
+      const config = await loadConfig(env);
+
+      expect(config.cooldownDuration).toBe(300);
+    });
+  });
 });
 
 describe('saveConfig', () => {
@@ -307,6 +340,36 @@ describe('saveConfig', () => {
     env.CONFIG_KV.put = vi.fn().mockRejectedValue(new Error('KV write error'));
 
     await expect(saveConfig(env, [validProvider])).rejects.toThrow('KV write error');
+  });
+});
+
+describe('cooldown persistence', () => {
+  it('saveCooldown saves to KV', async () => {
+    const env = createMockBindings();
+    const putSpy = vi.spyOn(env.CONFIG_KV, 'put');
+
+    await saveCooldown(env, 450);
+
+    expect(putSpy).toHaveBeenCalledWith('cooldown_duration', '450');
+  });
+
+  it('getRawCooldown reads from KV', async () => {
+    const env = createMockBindings({
+      kvData: { cooldown_duration: '900' }
+    });
+
+    const val = await getRawCooldown(env);
+
+    expect(val).toBe(900);
+  });
+
+  it('getRawCooldown falls back to env', async () => {
+    const env = createMockBindings();
+    env.COOLDOWN_DURATION = '120';
+
+    const val = await getRawCooldown(env);
+
+    expect(val).toBe(120);
   });
 });
 

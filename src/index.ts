@@ -10,7 +10,14 @@ import {
   postConfig,
   getTokens,
   postTokens,
+  getSettings,
+  postSettings,
 } from "./admin";
+import {
+  isProviderAvailable,
+  markProviderFailed,
+  markProviderSuccess,
+} from "./utils/circuit-breaker";
 
 const app = new Hono<{ Bindings: Bindings }>();
 
@@ -28,6 +35,8 @@ app.get("/admin/config", authMiddleware, getConfig);
 app.post("/admin/config", authMiddleware, postConfig);
 app.get("/admin/tokens", authMiddleware, getTokens);
 app.post("/admin/tokens", authMiddleware, postTokens);
+app.get("/admin/settings", authMiddleware, getSettings);
+app.post("/admin/settings", authMiddleware, postSettings);
 
 // Main proxy endpoint
 app.post("/v1/messages", async (c) => {
@@ -35,6 +44,9 @@ app.post("/v1/messages", async (c) => {
   const body = await c.req.json();
   const headers = c.req.header();
   const skipAnthropic = headers["x-ccf-debug-skip-anthropic"] === "1";
+
+  // Get cooldown from config (defaults to env or 300s)
+  const cooldownDuration = config.cooldownDuration;
 
   // Check for authentication if tokens are configured
   if (config.allowedTokens && config.allowedTokens.length > 0) {
@@ -63,55 +75,73 @@ app.post("/v1/messages", async (c) => {
 
   // --- Attempt 1: Primary Anthropic API ---
   let lastErrorResponse: Response | null = null;
+  const anthropicName = "anthropic-primary";
 
   if (!skipAnthropic) {
-    try {
-      console.log(
-        `[Proxy] Forwarding request to Primary Anthropic API (Model: ${body.model})`,
-      );
+    // Check circuit breaker
+    const isAvailable = await isProviderAvailable(anthropicName, c.env);
 
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 30000);
-      const filteredHeaders = filterHeadersDebugOption(headers);
+    if (!isAvailable) {
+      console.log(`[Proxy] Skipping ${anthropicName} (Circuit Breaker active)`);
+    } else {
+      try {
+        console.log(
+          `[Proxy] Forwarding request to Primary Anthropic API (Model: ${body.model})`,
+        );
 
-      const response = await fetch("https://api.anthropic.com/v1/messages", {
-        method: "POST",
-        headers: filteredHeaders,
-        body: JSON.stringify(body),
-        signal: controller.signal,
-      });
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 30000);
+        const filteredHeaders = filterHeadersDebugOption(headers);
 
-      clearTimeout(timeoutId);
+        const response = await fetch("https://api.anthropic.com/v1/messages", {
+          method: "POST",
+          headers: filteredHeaders,
+          body: JSON.stringify(body),
+          signal: controller.signal,
+        });
 
-      if (response.ok) {
-        console.log("[Proxy] Anthropic API request successful");
-        return new Response(response.body, {
-          status: response.status,
+        clearTimeout(timeoutId);
+
+        if (response.ok) {
+          console.log("[Proxy] Anthropic API request successful");
+          await markProviderSuccess(anthropicName, c.env);
+          return new Response(response.body, {
+            status: response.status,
+            headers: cleanHeaders(response.headers),
+          });
+        }
+
+        const status = response.status;
+        const errorBody = await response.text();
+        lastErrorResponse = new Response(errorBody, {
+          status,
           headers: cleanHeaders(response.headers),
         });
-      }
 
-      const status = response.status;
-      const errorBody = await response.text();
-      lastErrorResponse = new Response(errorBody, {
-        status,
-        headers: cleanHeaders(response.headers),
-      });
+        console.log(`[Proxy] Anthropic API failed with status ${status}`);
 
-      console.log(`[Proxy] Anthropic API failed with status ${status}`);
+        // Only fallback on specific error codes: 401, 403, 429, 5xx
+        if (
+          status !== 401 &&
+          status !== 403 &&
+          status !== 429 &&
+          status < 500
+        ) {
+          console.log(
+            `[Proxy] Error ${status} is not eligible for fallback. Returning error.`,
+          );
+          return lastErrorResponse;
+        }
 
-      // Only fallback on specific error codes: 401, 403, 429, 5xx
-      if (status !== 401 && status !== 403 && status !== 429 && status < 500) {
-        console.log(
-          `[Proxy] Error ${status} is not eligible for fallback. Returning error.`,
+        // Mark failed
+        await markProviderFailed(anthropicName, cooldownDuration, c.env);
+      } catch (error: any) {
+        console.error(
+          "[Proxy] Network error or timeout contacting Anthropic:",
+          error.message,
         );
-        return lastErrorResponse;
+        await markProviderFailed(anthropicName, cooldownDuration, c.env);
       }
-    } catch (error: any) {
-      console.error(
-        "[Proxy] Network error or timeout contacting Anthropic:",
-        error.message,
-      );
     }
   }
 
@@ -133,14 +163,24 @@ app.post("/v1/messages", async (c) => {
   }
 
   for (const provider of config.providers) {
+    const isAvailable = await isProviderAvailable(provider.name, c.env);
+    if (!isAvailable) {
+      console.log(
+        `[Proxy] Skipping provider ${provider.name} (Circuit Breaker active)`,
+      );
+      continue;
+    }
+
     try {
       const response = await tryProvider(
         provider,
         body,
         headers as Record<string, string>,
       );
+
       if (response.ok) {
         console.log(`[Proxy] Provider ${provider.name} request successful`);
+        await markProviderSuccess(provider.name, c.env);
         return new Response(response.body, {
           status: response.status,
           headers: cleanHeaders(response.headers),
@@ -153,12 +193,15 @@ app.post("/v1/messages", async (c) => {
         `[Proxy] Provider ${provider.name} failed with status ${status}`,
       );
 
+      await markProviderFailed(provider.name, cooldownDuration, c.env);
+
       lastErrorResponse = new Response(errorText, {
         status,
         headers: cleanHeaders(response.headers),
       });
     } catch (error: any) {
       console.error(`[Proxy] Provider ${provider.name} error:`, error.message);
+      await markProviderFailed(provider.name, cooldownDuration, c.env);
     }
   }
 
@@ -177,6 +220,7 @@ app.post("/v1/messages", async (c) => {
       },
     },
     502,
+    1
   );
 });
 
