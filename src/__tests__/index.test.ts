@@ -377,7 +377,7 @@ describe('Main Application', () => {
           kvData: { providers: JSON.stringify([validProvider]) },
         });
         const request = createProxyRequest(validMessageRequest, {
-          'x-ccfallback-debug-skip-anthropic': '1',
+          'x-claude-code-fallback-debug-skip-anthropic': '1',
         });
 
         await app.fetch(request, env);
@@ -398,7 +398,7 @@ describe('Main Application', () => {
           kvData: { providers: JSON.stringify([validProvider]) },
         });
         const request = createProxyRequest(validMessageRequest, {
-          'x-ccfallback-debug-skip-anthropic': '1',
+          'x-claude-code-fallback-debug-skip-anthropic': '1',
         });
 
         await app.fetch(request, env);
@@ -425,7 +425,7 @@ describe('Main Application', () => {
       it('returns 502 with error message when skipping Anthropic and no fallbacks', async () => {
         const env = createMockBindings();
         const request = createProxyRequest(validMessageRequest, {
-          'x-ccfallback-debug-skip-anthropic': '1',
+          'x-claude-code-fallback-debug-skip-anthropic': '1',
         });
 
         const response = await app.fetch(request, env);
