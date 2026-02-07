@@ -1,6 +1,13 @@
 import { Context, Next } from "hono";
 import { Bindings, ProviderConfig } from "./types";
-import { getRawConfig, saveConfig, getRawTokens, saveTokens } from "./config";
+import {
+  getRawConfig,
+  saveConfig,
+  getRawTokens,
+  saveTokens,
+  getRawCooldown,
+  saveCooldown,
+} from "./config";
 
 /**
  * Authentication middleware - validates token from query or header
@@ -31,6 +38,7 @@ export async function adminPage(c: Context<{ Bindings: Bindings }>) {
   const token = c.req.query("token") || "";
   const config = await getRawConfig(c.env);
   const allowedTokens = await getRawTokens(c.env);
+  const cooldown = await getRawCooldown(c.env);
 
   // Construct the base URL for instructions
   const requestUrl = new URL(c.req.url);
@@ -110,6 +118,26 @@ export async function adminPage(c: Context<{ Bindings: Bindings }>) {
       border-radius: 4px;
       resize: vertical;
     }
+    input[type="number"] {
+      width: 100%;
+      padding: 8px;
+      font-size: 14px;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+    }
+    .form-group {
+      margin-bottom: 15px;
+    }
+    .form-group label {
+      display: block;
+      margin-bottom: 5px;
+      font-weight: 600;
+    }
+    .help-text {
+      font-size: 12px;
+      color: #666;
+      margin-bottom: 5px;
+    }
     .actions {
       display: flex;
       gap: 10px;
@@ -178,6 +206,7 @@ export async function adminPage(c: Context<{ Bindings: Bindings }>) {
     <div class="tab active" onclick="switchView('visual')">Visual Editor</div>
     <div class="tab" onclick="switchView('json')">JSON Editor</div>
     <div class="tab" onclick="switchView('tokens')">Access Tokens</div>
+    <div class="tab" onclick="switchView('settings')">Settings</div>
   </div>
 
   <div id="visual-view" class="view active">
@@ -206,6 +235,20 @@ export ANTHROPIC_BASE_URL="${escapeHtml(workerBaseUrl)}"</div>
       <div id="tokenList"></div>
       <div class="actions">
         <button class="btn btn-primary" onclick="addToken()">+ Add Token</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="settings-view" class="view">
+    <div class="card">
+      <h3>Global Settings</h3>
+      <div class="form-group">
+        <label>Circuit Breaker Cooldown (seconds)</label>
+        <div class="help-text">How long to skip a provider after it fails (default: 300s / 5m).</div>
+        <input type="number" id="cooldownInput" value="${cooldown}" min="0" step="1">
+      </div>
+      <div class="actions">
+        <button class="btn btn-primary" onclick="saveSettings()">Save Settings</button>
       </div>
     </div>
   </div>
@@ -249,6 +292,7 @@ export ANTHROPIC_BASE_URL="${escapeHtml(workerBaseUrl)}"</div>
       let tabIndex = 1;
       if (view === 'json') tabIndex = 2;
       if (view === 'tokens') tabIndex = 3;
+      if (view === 'settings') tabIndex = 4;
 
       document.querySelector('.tab:nth-child(' + tabIndex + ')').classList.add('active');
       document.getElementById(view + '-view').classList.add('active');
@@ -393,6 +437,24 @@ export ANTHROPIC_BASE_URL="${escapeHtml(workerBaseUrl)}"</div>
       }
     }
 
+    async function saveSettings() {
+      try {
+        const cooldown = parseInt(document.getElementById('cooldownInput').value, 10);
+        const res = await fetch('/admin/settings?token=' + TOKEN, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ cooldownDuration: cooldown })
+        });
+        if (res.ok) {
+          showStatus('Settings saved!');
+        } else {
+          showStatus('Failed to save settings: ' + await res.text(), true);
+        }
+      } catch (e) {
+        showStatus('Error: ' + e.message, true);
+      }
+    }
+
     function formatJson() {
       try {
         const json = JSON.parse(document.getElementById('jsonEditor').value);
@@ -492,6 +554,34 @@ export async function postTokens(c: Context<{ Bindings: Bindings }>) {
 
     await saveTokens(c.env, validTokens);
     return c.json({ success: true, count: validTokens.length });
+  } catch (e: any) {
+    return c.json({ error: e.message }, 400);
+  }
+}
+
+/**
+ * GET /admin/settings - Get global settings
+ */
+export async function getSettings(c: Context<{ Bindings: Bindings }>) {
+  const cooldown = await getRawCooldown(c.env);
+  return c.json({ cooldownDuration: cooldown });
+}
+
+/**
+ * POST /admin/settings - Save global settings
+ */
+export async function postSettings(c: Context<{ Bindings: Bindings }>) {
+  try {
+    const body = await c.req.json<{ cooldownDuration: number }>();
+    if (
+      typeof body.cooldownDuration !== "number" ||
+      body.cooldownDuration < 0
+    ) {
+      return c.json({ error: "Invalid cooldown duration" }, 400);
+    }
+
+    await saveCooldown(c.env, body.cooldownDuration);
+    return c.json({ success: true });
   } catch (e: any) {
     return c.json({ error: e.message }, 400);
   }

@@ -2,6 +2,7 @@ import { Bindings, AppConfig, ProviderConfig } from './types';
 
 const KV_KEY = 'providers';
 const TOKENS_KV_KEY = 'allowed_tokens';
+const COOLDOWN_KV_KEY = 'cooldown_duration';
 
 /**
  * Load configuration from KV storage.
@@ -10,11 +11,13 @@ export async function loadConfig(env: Bindings): Promise<AppConfig> {
   const debug = env.DEBUG === 'true';
   let providers: ProviderConfig[] = [];
   let allowedTokens: string[] = [];
+  let cooldownDuration = parseInt(env.COOLDOWN_DURATION || '300', 10);
 
   try {
-    const [configJson, tokensJson] = await Promise.all([
+    const [configJson, tokensJson, cooldownJson] = await Promise.all([
       env.CONFIG_KV.get(KV_KEY),
       env.CONFIG_KV.get(TOKENS_KV_KEY),
+      env.CONFIG_KV.get(COOLDOWN_KV_KEY),
     ]);
 
     if (configJson) {
@@ -43,17 +46,24 @@ export async function loadConfig(env: Bindings): Promise<AppConfig> {
         );
       }
     }
+
+    if (cooldownJson) {
+      const parsed = parseInt(cooldownJson, 10);
+      if (!isNaN(parsed)) {
+        cooldownDuration = parsed;
+      }
+    }
   } catch (e) {
     console.error('[Config] Failed to load config from KV:', e);
   }
 
   if (debug) {
     console.log(
-      `[Config] Loaded ${providers.length} providers. Allowed tokens: ${allowedTokens.length}. Debug: ${debug}`
+      `[Config] Loaded ${providers.length} providers. Allowed tokens: ${allowedTokens.length}. Cooldown: ${cooldownDuration}s. Debug: ${debug}`
     );
   }
 
-  return { debug, providers, allowedTokens };
+  return { debug, providers, allowedTokens, cooldownDuration };
 }
 
 /**
@@ -77,6 +87,16 @@ export async function saveTokens(
 }
 
 /**
+ * Save cooldown duration to KV storage.
+ */
+export async function saveCooldown(
+  env: Bindings,
+  duration: number
+): Promise<void> {
+  await env.CONFIG_KV.put(COOLDOWN_KV_KEY, duration.toString());
+}
+
+/**
  * Get raw config JSON from KV storage.
  */
 export async function getRawConfig(env: Bindings): Promise<string> {
@@ -88,4 +108,18 @@ export async function getRawConfig(env: Bindings): Promise<string> {
  */
 export async function getRawTokens(env: Bindings): Promise<string> {
   return (await env.CONFIG_KV.get(TOKENS_KV_KEY)) || '[]';
+}
+
+/**
+ * Get raw cooldown value from KV storage (or default from env).
+ */
+export async function getRawCooldown(env: Bindings): Promise<number> {
+  const val = await env.CONFIG_KV.get(COOLDOWN_KV_KEY);
+  if (val) {
+    const parsed = parseInt(val, 10);
+    if (!isNaN(parsed)) {
+      return parsed;
+    }
+  }
+  return parseInt(env.COOLDOWN_DURATION || '300', 10);
 }

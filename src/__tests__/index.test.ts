@@ -634,5 +634,33 @@ describe('Main Application', () => {
       const val = await env.CONFIG_KV.get('circuit:anthropic-primary');
       expect(val).toBe('failed');
     });
+
+    it('respects cooldown configuration from KV', async () => {
+      const env = createMockBindings({
+        kvData: {
+          providers: JSON.stringify([validProvider]),
+          cooldown_duration: '600'
+        },
+      });
+
+      const putSpy = vi.spyOn(env.CONFIG_KV, 'put');
+
+      globalThis.fetch = vi.fn((url: RequestInfo | URL) => {
+        if (url.toString().includes('api.anthropic.com')) {
+           return Promise.resolve(createErrorResponse(500, errorResponses.serverError));
+        }
+        return Promise.resolve(createSuccessResponse(successResponse));
+      }) as typeof fetch;
+
+      const request = createProxyRequest();
+      await app.fetch(request, env);
+
+      // Verify markProviderFailed called with 600
+      expect(putSpy).toHaveBeenCalledWith(
+        'circuit:anthropic-primary',
+        'failed',
+        expect.objectContaining({ expirationTtl: 600 })
+      );
+    });
   });
 });

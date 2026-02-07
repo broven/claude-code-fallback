@@ -10,6 +10,8 @@ import {
   postConfig,
   getTokens,
   postTokens,
+  getSettings,
+  postSettings,
 } from "./admin";
 import {
   isProviderAvailable,
@@ -33,6 +35,8 @@ app.get("/admin/config", authMiddleware, getConfig);
 app.post("/admin/config", authMiddleware, postConfig);
 app.get("/admin/tokens", authMiddleware, getTokens);
 app.post("/admin/tokens", authMiddleware, postTokens);
+app.get("/admin/settings", authMiddleware, getSettings);
+app.post("/admin/settings", authMiddleware, postSettings);
 
 // Main proxy endpoint
 app.post("/v1/messages", async (c) => {
@@ -41,8 +45,8 @@ app.post("/v1/messages", async (c) => {
   const headers = c.req.header();
   const skipAnthropic = headers["x-ccf-debug-skip-anthropic"] === "1";
 
-  // Get cooldown from env or default to 300 seconds (5 minutes)
-  const cooldownDuration = parseInt(c.env.COOLDOWN_DURATION || "300", 10);
+  // Get cooldown from config (defaults to env or 300s)
+  const cooldownDuration = config.cooldownDuration;
 
   // Check for authentication if tokens are configured
   if (config.allowedTokens && config.allowedTokens.length > 0) {

@@ -5,6 +5,8 @@ import {
   adminPage,
   getConfig,
   postConfig,
+  getSettings,
+  postSettings,
 } from '../admin';
 import { Bindings } from '../types';
 import { createMockBindings } from './mocks/kv';
@@ -22,6 +24,8 @@ function createTestApp() {
   app.get('/admin', authMiddleware, adminPage);
   app.get('/admin/config', authMiddleware, getConfig);
   app.post('/admin/config', authMiddleware, postConfig);
+  app.get('/admin/settings', authMiddleware, getSettings);
+  app.post('/admin/settings', authMiddleware, postSettings);
   return app;
 }
 
@@ -521,5 +525,84 @@ describe('postConfig', () => {
       expect(response.status).toBe(200);
       expect(data).toEqual({ success: true, count: 50 });
     });
+  });
+});
+
+describe('settings API', () => {
+  let app: Hono<{ Bindings: Bindings }>;
+
+  beforeEach(() => {
+    app = createTestApp();
+  });
+
+  it('GET /admin/settings returns default cooldown from env', async () => {
+    const env = createMockBindings({ adminToken: 'test-token' });
+    env.COOLDOWN_DURATION = '300';
+    const request = createRequest('/admin/settings', { token: 'test-token' });
+
+    const response = await app.fetch(request, env);
+    const data = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(data).toEqual({ cooldownDuration: 300 });
+  });
+
+  it('GET /admin/settings returns stored cooldown', async () => {
+    const env = createMockBindings({
+      adminToken: 'test-token',
+      kvData: { cooldown_duration: '600' }
+    });
+    const request = createRequest('/admin/settings', { token: 'test-token' });
+
+    const response = await app.fetch(request, env);
+    const data = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(data).toEqual({ cooldownDuration: 600 });
+  });
+
+  it('POST /admin/settings saves cooldown', async () => {
+    const env = createMockBindings({ adminToken: 'test-token' });
+    const request = createRequest('/admin/settings', {
+      method: 'POST',
+      token: 'test-token',
+      body: { cooldownDuration: 120 }
+    });
+
+    const response = await app.fetch(request, env);
+    const data = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(data).toEqual({ success: true });
+
+    // Verify persistence
+    const val = await env.CONFIG_KV.get('cooldown_duration');
+    expect(val).toBe('120');
+  });
+
+  it('POST /admin/settings validates input', async () => {
+    const env = createMockBindings({ adminToken: 'test-token' });
+    const request = createRequest('/admin/settings', {
+      method: 'POST',
+      token: 'test-token',
+      body: { cooldownDuration: 'invalid' }
+    });
+
+    const response = await app.fetch(request, env);
+
+    expect(response.status).toBe(400);
+  });
+
+  it('POST /admin/settings rejects negative values', async () => {
+    const env = createMockBindings({ adminToken: 'test-token' });
+    const request = createRequest('/admin/settings', {
+      method: 'POST',
+      token: 'test-token',
+      body: { cooldownDuration: -10 }
+    });
+
+    const response = await app.fetch(request, env);
+
+    expect(response.status).toBe(400);
   });
 });

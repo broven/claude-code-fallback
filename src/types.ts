@@ -17,6 +17,7 @@ export interface AppConfig {
   debug: boolean;
   providers: ProviderConfig[];
   allowedTokens: string[];
+  cooldownDuration: number;
 }
 
 /**
