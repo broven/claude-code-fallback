@@ -3,11 +3,11 @@
  */
 export function filterHeaders(
   headers: Record<string, string>,
-  keys: string[]
+  keys: string[],
 ): Record<string, string> {
   const excluded = new Set(keys.map((k) => k.toLowerCase()));
   return Object.fromEntries(
-    Object.entries(headers).filter(([key]) => !excluded.has(key.toLowerCase()))
+    Object.entries(headers).filter(([key]) => !excluded.has(key.toLowerCase())),
   );
 }
 
@@ -15,9 +15,12 @@ export function filterHeaders(
  * Filter out debug headers before forwarding to upstream.
  */
 export function filterHeadersDebugOption(
-  headers: Record<string, string>
+  headers: Record<string, string>,
 ): Record<string, string> {
-  return filterHeaders(headers, ['x-ccfallback-debug-skip-anthropic']);
+  return filterHeaders(headers, [
+    "x-ccfallback-debug-skip-anthropic",
+    "x-ccf-api-key",
+  ]);
 }
 
 /**
@@ -27,15 +30,15 @@ export function filterHeadersDebugOption(
 export function cleanHeaders(headers: Headers): Record<string, string> {
   const result: Record<string, string> = {};
   const unsafeHeaders = [
-    'content-length',
-    'content-encoding',
-    'transfer-encoding',
-    'connection',
-    'keep-alive',
-    'te',
-    'trailer',
-    'upgrade',
-    'host',
+    "content-length",
+    "content-encoding",
+    "transfer-encoding",
+    "connection",
+    "keep-alive",
+    "te",
+    "trailer",
+    "upgrade",
+    "host",
   ];
 
   headers.forEach((value, key) => {

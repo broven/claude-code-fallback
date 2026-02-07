@@ -3,7 +3,14 @@ import { Bindings } from "./types";
 import { loadConfig } from "./config";
 import { filterHeadersDebugOption, cleanHeaders } from "./utils/headers";
 import { tryProvider } from "./utils/provider";
-import { authMiddleware, adminPage, getConfig, postConfig } from "./admin";
+import {
+  authMiddleware,
+  adminPage,
+  getConfig,
+  postConfig,
+  getTokens,
+  postTokens,
+} from "./admin";
 import {
   isProviderAvailable,
   markProviderFailed,
@@ -24,16 +31,35 @@ app.get("/", async (c) => {
 app.get("/admin", authMiddleware, adminPage);
 app.get("/admin/config", authMiddleware, getConfig);
 app.post("/admin/config", authMiddleware, postConfig);
+app.get("/admin/tokens", authMiddleware, getTokens);
+app.post("/admin/tokens", authMiddleware, postTokens);
 
 // Main proxy endpoint
 app.post("/v1/messages", async (c) => {
   const config = await loadConfig(c.env);
   const body = await c.req.json();
   const headers = c.req.header();
-  const skipAnthropic =
-    headers["x-claude-code-fallback-debug-skip-anthropic"] === "1";
+  const skipAnthropic = headers["x-ccf-debug-skip-anthropic"] === "1";
+
   // Get cooldown from env or default to 300 seconds (5 minutes)
   const cooldownDuration = parseInt(c.env.COOLDOWN_DURATION || "300", 10);
+
+  // Check for authentication if tokens are configured
+  if (config.allowedTokens && config.allowedTokens.length > 0) {
+    const authKey = headers["x-ccf-api-key"];
+    if (!authKey || !config.allowedTokens.includes(authKey)) {
+      console.log("[Proxy] Unauthorized request - missing or invalid API key");
+      return c.json(
+        {
+          error: {
+            type: "authentication_error",
+            message: "Invalid or missing x-ccf-api-key",
+          },
+        },
+        401,
+      );
+    }
+  }
 
   if (config.debug) {
     console.log("[Proxy] Incoming Request", {
@@ -190,6 +216,7 @@ app.post("/v1/messages", async (c) => {
       },
     },
     502,
+    1
   );
 });
 
