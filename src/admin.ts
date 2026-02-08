@@ -522,7 +522,7 @@ export async function adminPage(c: Context<{ Bindings: Bindings }>) {
     var CLAUDE_MODELS = [
       { id: 'claude-sonnet-4-20250514', label: 'Claude Sonnet 4' },
       { id: 'claude-opus-4-20250514', label: 'Claude Opus 4' },
-      { id: 'claude-opus-4-6-20250415', label: 'Claude Opus 4.6' },
+      { id: 'claude-opus-4-6', label: 'Claude Opus 4.6' },
       { id: 'claude-3-5-haiku-20241022', label: 'Claude 3.5 Haiku' },
       { id: 'claude-3-5-sonnet-20241022', label: 'Claude 3.5 Sonnet (v2)' },
       { id: 'claude-3-opus-20240229', label: 'Claude 3 Opus' },
@@ -1453,9 +1453,7 @@ export async function testProvider(c: Context<{ Bindings: Bindings }>) {
 
     let suggestion: string | undefined;
     if (failedWithoutMapping.length > 0) {
-      const modelNames = failedWithoutMapping
-        .map((r) => r.label)
-        .join(", ");
+      const modelNames = failedWithoutMapping.map((r) => r.label).join(", ");
       suggestion = `Consider adding model mappings for: ${modelNames}. Your provider may use different model names.`;
     }
 
