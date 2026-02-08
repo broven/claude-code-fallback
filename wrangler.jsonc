@@ -19,7 +19,7 @@
   ],
   "placement": {
     // set to us-east for now, avoid restriction ban
-    "region": "aws:us-east-1",
+    "region": "smart",
   },
   "vars": {
     "DEBUG": "false",
