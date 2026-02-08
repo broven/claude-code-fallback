@@ -8,6 +8,8 @@ import {
   parseTokenConfigs,
   getRawCooldown,
   saveCooldown,
+  getRawAnthropicDisabled,
+  saveAnthropicDisabled,
 } from "./config";
 import { convertAnthropicToOpenAI } from "./utils/format-converter";
 
@@ -41,6 +43,7 @@ export async function adminPage(c: Context<{ Bindings: Bindings }>) {
   const config = await getRawConfig(c.env);
   const rawTokens = await getRawTokens(c.env);
   const cooldown = await getRawCooldown(c.env);
+  const anthropicDisabled = await getRawAnthropicDisabled(c.env);
 
   // Construct the base URL for instructions
   const requestUrl = new URL(c.req.url);
@@ -334,6 +337,52 @@ export async function adminPage(c: Context<{ Bindings: Bindings }>) {
       font-size: 13px;
     }
     .password-wrapper input { padding-right: 60px; }
+    /* Toggle switch */
+    .toggle-switch {
+      position: relative;
+      display: inline-block;
+      width: 36px;
+      height: 20px;
+      flex-shrink: 0;
+    }
+    .toggle-switch input { opacity: 0; width: 0; height: 0; }
+    .toggle-slider {
+      position: absolute;
+      cursor: pointer;
+      inset: 0;
+      background: #ccc;
+      border-radius: 20px;
+      transition: background 0.2s;
+    }
+    .toggle-slider::before {
+      content: '';
+      position: absolute;
+      height: 14px;
+      width: 14px;
+      left: 3px;
+      bottom: 3px;
+      background: white;
+      border-radius: 50%;
+      transition: transform 0.2s;
+    }
+    .toggle-switch input:checked + .toggle-slider { background: #27ae60; }
+    .toggle-switch input:checked + .toggle-slider::before { transform: translateX(16px); }
+    /* Disabled provider card */
+    .provider-card.disabled-card { opacity: 0.55; border-left-color: #ccc; }
+    .provider-card.disabled-card .card-title { text-decoration: line-through; color: #999; }
+    /* Anthropic primary card */
+    .provider-card.anthropic-primary { border-left-color: #d4a553; }
+    .anthropic-badge {
+      display: inline-block;
+      font-size: 10px;
+      background: #d4a553;
+      color: white;
+      padding: 1px 6px;
+      border-radius: 3px;
+      margin-left: 8px;
+      font-weight: 500;
+      vertical-align: middle;
+    }
   </style>
 </head>
 <body>
@@ -480,6 +529,7 @@ export async function adminPage(c: Context<{ Bindings: Bindings }>) {
     ];
     let providers = [];
     let tokenConfigs = [];
+    var anthropicDisabled = ${anthropicDisabled};
 
     try {
       providers = JSON.parse(${JSON.stringify(config)});
@@ -614,40 +664,70 @@ export async function adminPage(c: Context<{ Bindings: Bindings }>) {
     // ---- Providers ----
     function renderProviders() {
       var container = document.getElementById('providerList');
-      if (providers.length === 0) {
-        container.innerHTML = '<div class="empty-state">No providers configured. Add one to get started.</div>';
-        return;
-      }
-      container.innerHTML = providers.map(function(p, i) {
-        var mappingCount = p.modelMapping ? Object.keys(p.modelMapping).length : 0;
-        return '<div class="card provider-card" data-index="' + i + '" draggable="true"' +
-          ' ondragstart="onDragStart(event,' + i + ')"' +
-          ' ondragover="onDragOver(event)"' +
-          ' ondragenter="onDragEnter(event)"' +
-          ' ondragleave="onDragLeave(event)"' +
-          ' ondrop="onDrop(event,' + i + ')"' +
-          ' ondragend="onDragEnd(event)"' +
-          ' ontouchstart="onTouchStart(event,' + i + ')">' +
-          '<div class="card-header">' +
-            '<div class="drag-handle" aria-label="Drag to reorder">&#9776;</div>' +
-            '<div style="flex:1;min-width:0;">' +
-              '<div style="display:flex;align-items:center;">' +
-                '<span class="priority-badge">' + (i + 1) + '</span>' +
-                '<span class="card-title">' + escapeHtml(p.name) + '</span>' +
-              '</div>' +
-              '<div class="card-subtitle">' + escapeHtml(p.baseUrl) + '</div>' +
-              (p.format === 'openai' ? '<div class="card-meta">Format: OpenAI</div>' : '') +
-              (mappingCount > 0 ? '<div class="card-meta">Mappings: ' + mappingCount + '</div>' : '') +
+
+      // Anthropic Primary card (always first, fixed position)
+      var anthropicHtml = '<div class="card provider-card anthropic-primary' +
+        (anthropicDisabled ? ' disabled-card' : '') + '">' +
+        '<div class="card-header">' +
+          '<div style="flex:1;min-width:0;">' +
+            '<div style="display:flex;align-items:center;">' +
+              '<span class="priority-badge" style="background:#d4a553;">1</span>' +
+              '<span class="card-title">Anthropic API</span>' +
+              '<span class="anthropic-badge">PRIMARY</span>' +
             '</div>' +
-            '<div class="card-actions">' +
-              '<button class="btn btn-outline btn-sm" onclick="moveProviderUp(' + i + ')"' + (i === 0 ? ' disabled' : '') + ' title="Move up" aria-label="Move up">&#9650;</button>' +
-              '<button class="btn btn-outline btn-sm" onclick="moveProviderDown(' + i + ')"' + (i === providers.length - 1 ? ' disabled' : '') + ' title="Move down" aria-label="Move down">&#9660;</button>' +
-              '<button class="btn btn-outline btn-sm" onclick="openProviderModal(' + i + ')">Edit</button>' +
-              '<button class="btn btn-danger btn-sm" onclick="deleteProvider(' + i + ')">Delete</button>' +
-            '</div>' +
+            '<div class="card-subtitle">https://api.anthropic.com/v1/messages</div>' +
           '</div>' +
-        '</div>';
-      }).join('');
+          '<div class="card-actions">' +
+            '<label class="toggle-switch" title="' + (anthropicDisabled ? 'Enable' : 'Disable') + ' provider">' +
+              '<input type="checkbox" ' + (anthropicDisabled ? '' : 'checked') +
+              ' onchange="toggleAnthropicPrimary(this.checked)">' +
+              '<span class="toggle-slider"></span>' +
+            '</label>' +
+          '</div>' +
+        '</div>' +
+      '</div>';
+
+      // Fallback providers
+      var fallbackHtml = '';
+      if (providers.length === 0) {
+        fallbackHtml = '<div class="empty-state">No fallback providers configured. Add one to get started.</div>';
+      } else {
+        fallbackHtml = providers.map(function(p, i) {
+          var mappingCount = p.modelMapping ? Object.keys(p.modelMapping).length : 0;
+          return '<div class="card provider-card' + (p.disabled ? ' disabled-card' : '') + '" data-index="' + i + '" draggable="true"' +
+            ' ondragstart="onDragStart(event,' + i + ')"' +
+            ' ondragover="onDragOver(event)"' +
+            ' ondragenter="onDragEnter(event)"' +
+            ' ondragleave="onDragLeave(event)"' +
+            ' ondrop="onDrop(event,' + i + ')"' +
+            ' ondragend="onDragEnd(event)"' +
+            ' ontouchstart="onTouchStart(event,' + i + ')">' +
+            '<div class="card-header">' +
+              '<div class="drag-handle" aria-label="Drag to reorder">&#9776;</div>' +
+              '<div style="flex:1;min-width:0;">' +
+                '<div style="display:flex;align-items:center;">' +
+                  '<span class="priority-badge">' + (i + 2) + '</span>' +
+                  '<span class="card-title">' + escapeHtml(p.name) + '</span>' +
+                '</div>' +
+                '<div class="card-subtitle">' + escapeHtml(p.baseUrl) + '</div>' +
+                (p.format === 'openai' ? '<div class="card-meta">Format: OpenAI</div>' : '') +
+                (mappingCount > 0 ? '<div class="card-meta">Mappings: ' + mappingCount + '</div>' : '') +
+              '</div>' +
+              '<div class="card-actions">' +
+                '<label class="toggle-switch" title="' + (p.disabled ? 'Enable' : 'Disable') + ' provider">' +
+                  '<input type="checkbox" ' + (p.disabled ? '' : 'checked') +
+                  ' onchange="toggleProvider(' + i + ', this.checked)">' +
+                  '<span class="toggle-slider"></span>' +
+                '</label>' +
+                '<button class="btn btn-outline btn-sm" onclick="openProviderModal(' + i + ')">Edit</button>' +
+                '<button class="btn btn-danger btn-sm" onclick="deleteProvider(' + i + ')">Delete</button>' +
+              '</div>' +
+            '</div>' +
+          '</div>';
+        }).join('');
+      }
+
+      container.innerHTML = anthropicHtml + fallbackHtml;
       // Sync JSON editor if open
       var jsonSection = document.getElementById('jsonEditorSection');
       if (jsonSection && jsonSection.classList.contains('open')) {
@@ -908,14 +988,30 @@ export async function adminPage(c: Context<{ Bindings: Bindings }>) {
       persistProviders();
     }
 
-    function moveProviderUp(index) {
-      if (index <= 0) return;
-      reorderProvider(index, index - 1);
+    async function toggleAnthropicPrimary(enabled) {
+      var disabled = !enabled;
+      try {
+        var res = await fetch('/admin/anthropic-status?token=' + TOKEN, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ disabled: disabled })
+        });
+        if (res.ok) {
+          anthropicDisabled = disabled;
+          renderProviders();
+          showStatus(disabled ? 'Anthropic API disabled' : 'Anthropic API enabled');
+        } else {
+          showStatus('Failed to update: ' + await res.text(), true);
+        }
+      } catch (e) {
+        showStatus('Error: ' + e.message, true);
+      }
     }
 
-    function moveProviderDown(index) {
-      if (index >= providers.length - 1) return;
-      reorderProvider(index, index + 1);
+    function toggleProvider(index, enabled) {
+      providers[index].disabled = !enabled;
+      renderProviders();
+      persistProviders();
     }
 
     function onDragStart(event, index) {
@@ -1370,6 +1466,30 @@ export async function testProvider(c: Context<{ Bindings: Bindings }>) {
     });
   } catch (e: any) {
     return c.json({ success: false, error: e.message }, 400);
+  }
+}
+
+/**
+ * GET /admin/anthropic-status - Get Anthropic primary disabled state
+ */
+export async function getAnthropicStatus(c: Context<{ Bindings: Bindings }>) {
+  const disabled = await getRawAnthropicDisabled(c.env);
+  return c.json({ disabled });
+}
+
+/**
+ * POST /admin/anthropic-status - Set Anthropic primary disabled state
+ */
+export async function postAnthropicStatus(c: Context<{ Bindings: Bindings }>) {
+  try {
+    const body = await c.req.json<{ disabled: boolean }>();
+    if (typeof body.disabled !== "boolean") {
+      return c.json({ error: "disabled must be a boolean" }, 400);
+    }
+    await saveAnthropicDisabled(c.env, body.disabled);
+    return c.json({ success: true });
+  } catch (e: any) {
+    return c.json({ error: e.message }, 400);
   }
 }
 

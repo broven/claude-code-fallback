@@ -9,6 +9,7 @@ export interface ProviderConfig {
   headers?: Record<string, string>;
   modelMapping?: Record<string, string>;
   format?: "anthropic" | "openai";
+  disabled?: boolean;
 }
 
 /**
@@ -28,6 +29,7 @@ export interface AppConfig {
   allowedTokens: string[];
   tokenConfigs: TokenConfig[];
   cooldownDuration: number;
+  anthropicPrimaryDisabled: boolean;
 }
 
 /**

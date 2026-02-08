@@ -3,6 +3,7 @@ import { Bindings, AppConfig, ProviderConfig, TokenConfig } from './types';
 const KV_KEY = 'providers';
 const TOKENS_KV_KEY = 'allowed_tokens';
 const COOLDOWN_KV_KEY = 'cooldown_duration';
+const ANTHROPIC_DISABLED_KV_KEY = 'anthropic_primary_disabled';
 
 /**
  * Load configuration from KV storage.
@@ -12,12 +13,14 @@ export async function loadConfig(env: Bindings): Promise<AppConfig> {
   let providers: ProviderConfig[] = [];
   let tokenConfigs: TokenConfig[] = [];
   let cooldownDuration = parseInt(env.COOLDOWN_DURATION || '300', 10);
+  let anthropicDisabledJson: string | null = null;
 
   try {
-    const [configJson, tokensJson, cooldownJson] = await Promise.all([
+    const [configJson, tokensJson, cooldownJson, adJson] = await Promise.all([
       env.CONFIG_KV.get(KV_KEY),
       env.CONFIG_KV.get(TOKENS_KV_KEY),
       env.CONFIG_KV.get(COOLDOWN_KV_KEY),
+      env.CONFIG_KV.get(ANTHROPIC_DISABLED_KV_KEY),
     ]);
 
     if (configJson) {
@@ -51,11 +54,14 @@ export async function loadConfig(env: Bindings): Promise<AppConfig> {
         cooldownDuration = parsed;
       }
     }
+
+    anthropicDisabledJson = adJson;
   } catch (e) {
     console.error('[Config] Failed to load config from KV:', e);
   }
 
   const allowedTokens = tokenConfigs.map((tc) => tc.token);
+  const anthropicPrimaryDisabled = anthropicDisabledJson === 'true';
 
   if (debug) {
     console.log(
@@ -63,7 +69,7 @@ export async function loadConfig(env: Bindings): Promise<AppConfig> {
     );
   }
 
-  return { debug, providers, allowedTokens, tokenConfigs, cooldownDuration };
+  return { debug, providers, allowedTokens, tokenConfigs, cooldownDuration, anthropicPrimaryDisabled };
 }
 
 /**
@@ -147,4 +153,22 @@ export async function getRawCooldown(env: Bindings): Promise<number> {
     }
   }
   return parseInt(env.COOLDOWN_DURATION || '300', 10);
+}
+
+/**
+ * Get Anthropic primary disabled state from KV storage.
+ */
+export async function getRawAnthropicDisabled(env: Bindings): Promise<boolean> {
+  const val = await env.CONFIG_KV.get(ANTHROPIC_DISABLED_KV_KEY);
+  return val === 'true';
+}
+
+/**
+ * Save Anthropic primary disabled state to KV storage.
+ */
+export async function saveAnthropicDisabled(
+  env: Bindings,
+  disabled: boolean
+): Promise<void> {
+  await env.CONFIG_KV.put(ANTHROPIC_DISABLED_KV_KEY, disabled.toString());
 }
