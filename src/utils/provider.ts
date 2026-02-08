@@ -1,13 +1,20 @@
-import { ProviderConfig } from "../types";
+import { env } from 'hono/adapter';
+import { AppConfig, ProviderConfig } from '../types';
+import {
+  convertAnthropicToOpenAI,
+  convertOpenAIResponseToAnthropic,
+  convertOpenAIStreamToAnthropic,
+} from './format-converter';
 
 /**
  * Attempt a request to a specific fallback provider.
- * Handles model mapping, header filtering, and authentication.
+ * Handles model mapping, header filtering, authentication, and format conversion.
  */
 export async function tryProvider(
   provider: ProviderConfig,
   body: any,
   originalHeaders: Record<string, string>,
+  config: AppConfig,
 ): Promise<Response> {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), 30000);
@@ -20,6 +27,7 @@ export async function tryProvider(
       authHeader,
       headers: customHeaders,
       modelMapping,
+      format,
     } = provider;
 
     // Apply model mapping if configured
@@ -28,21 +36,26 @@ export async function tryProvider(
       model = modelMapping[model];
     }
 
-    const newBody = { ...body, model };
+    let requestBody = { ...body, model };
+
+    // Convert request format if provider uses OpenAI format
+    if (format === 'openai') {
+      requestBody = convertAnthropicToOpenAI(requestBody);
+    }
 
     // Headers to exclude from forwarding
     const excludeHeaders = [
-      "connection",
-      "keep-alive",
-      "te",
-      "trailer",
-      "transfer-encoding",
-      "upgrade",
-      "host",
-      "content-length",
-      "x-api-key",
-      "authorization",
-      "x-ccf-api-key",
+      'connection',
+      'keep-alive',
+      'te',
+      'trailer',
+      'transfer-encoding',
+      'upgrade',
+      'host',
+      'content-length',
+      'x-api-key',
+      'authorization',
+      'x-ccf-api-key',
     ];
 
     // Build request headers
@@ -59,30 +72,55 @@ export async function tryProvider(
       Object.assign(headers, customHeaders);
     }
 
-    headers["content-type"] = headers["content-type"] || "application/json";
+    headers['content-type'] = headers['content-type'] || 'application/json';
 
     // Set authentication header
-    const headerName = authHeader || "x-api-key";
-    if (headerName === "Authorization") {
-      if (!apiKey.startsWith("Bearer ")) {
-        headers["Authorization"] = `Bearer ${apiKey}`;
+    const headerName = authHeader || 'x-api-key';
+    if (headerName === 'Authorization') {
+      if (!apiKey.startsWith('Bearer ')) {
+        headers['Authorization'] = `Bearer ${apiKey}`;
       } else {
-        headers["Authorization"] = apiKey;
+        headers['Authorization'] = apiKey;
       }
     } else {
       headers[headerName] = apiKey;
     }
-
-    console.log(`[Proxy] Attempting provider: ${name} (Model: ${model})`);
-
+    if (config?.debug) {
+      console.log(`{
+        "model": "${body.model}",
+        "providerMappedModel": ${requestBody.model}
+      }`);
+    }
     const response = await fetch(baseUrl, {
-      method: "POST",
+      method: 'POST',
       headers,
-      body: JSON.stringify(newBody),
+      body: JSON.stringify(requestBody),
       signal: controller.signal,
     });
 
     clearTimeout(timeoutId);
+
+    // Convert response format if provider uses OpenAI format and response is OK
+    if (format === 'openai' && response.ok) {
+      if (body.stream) {
+        const convertedStream = convertOpenAIStreamToAnthropic(
+          response.body as ReadableStream<Uint8Array>,
+          model,
+        );
+        return new Response(convertedStream, {
+          status: response.status,
+          headers: { 'content-type': 'text/event-stream' },
+        });
+      } else {
+        const openaiData = await response.json();
+        const anthropicData = convertOpenAIResponseToAnthropic(openaiData);
+        return new Response(JSON.stringify(anthropicData), {
+          status: response.status,
+          headers: { 'content-type': 'application/json' },
+        });
+      }
+    }
+
     return response;
   } catch (error: any) {
     clearTimeout(timeoutId);

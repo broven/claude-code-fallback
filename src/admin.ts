@@ -1,5 +1,5 @@
-import { Context, Next } from "hono";
-import { Bindings, ProviderConfig, TokenConfig } from "./types";
+import { Context, Next } from 'hono';
+import { Bindings, ProviderConfig, TokenConfig } from './types';
 import {
   getRawConfig,
   saveConfig,
@@ -8,7 +8,10 @@ import {
   parseTokenConfigs,
   getRawCooldown,
   saveCooldown,
-} from "./config";
+  getRawAnthropicDisabled,
+  saveAnthropicDisabled,
+} from './config';
+import { convertAnthropicToOpenAI } from './utils/format-converter';
 
 /**
  * Authentication middleware - validates token from query or header
@@ -18,15 +21,15 @@ export async function authMiddleware(
   next: Next,
 ) {
   const token =
-    c.req.query("token") ||
-    c.req.header("Authorization")?.replace("Bearer ", "");
+    c.req.query('token') ||
+    c.req.header('Authorization')?.replace('Bearer ', '');
 
   if (!c.env.ADMIN_TOKEN) {
-    return c.text("ADMIN_TOKEN not configured", 500);
+    return c.text('ADMIN_TOKEN not configured', 500);
   }
 
   if (token !== c.env.ADMIN_TOKEN) {
-    return c.text("Unauthorized", 401);
+    return c.text('Unauthorized', 401);
   }
 
   await next();
@@ -36,10 +39,11 @@ export async function authMiddleware(
  * Admin page HTML
  */
 export async function adminPage(c: Context<{ Bindings: Bindings }>) {
-  const token = c.req.query("token") || "";
+  const token = c.req.query('token') || '';
   const config = await getRawConfig(c.env);
   const rawTokens = await getRawTokens(c.env);
   const cooldown = await getRawCooldown(c.env);
+  const anthropicDisabled = await getRawAnthropicDisabled(c.env);
 
   // Construct the base URL for instructions
   const requestUrl = new URL(c.req.url);
@@ -285,17 +289,38 @@ export async function adminPage(c: Context<{ Bindings: Bindings }>) {
       padding: 4px 0;
     }
     .kv-add:hover { text-decoration: underline; }
-    /* Test result */
-    .test-result {
-      display: none;
-      margin-top: 8px;
+    /* Test results */
+    .test-results-container { margin-top: 8px; }
+    .test-results-container.loading {
       padding: 8px 12px;
+      background: #fff3cd;
+      color: #856404;
       border-radius: 6px;
       font-size: 13px;
     }
-    .test-result.success { display: block; background: #d4edda; color: #155724; }
-    .test-result.error { display: block; background: #f8d7da; color: #721c24; }
-    .test-result.loading { display: block; background: #fff3cd; color: #856404; }
+    .test-model-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 10px;
+      border-radius: 4px;
+      font-size: 13px;
+      margin-bottom: 4px;
+    }
+    .test-model-row.success { background: #d4edda; color: #155724; }
+    .test-model-row.error { background: #f8d7da; color: #721c24; }
+    .test-model-icon { font-size: 14px; flex-shrink: 0; }
+    .test-model-name { font-weight: 600; }
+    .test-model-detail { font-size: 12px; opacity: 0.8; margin-left: auto; }
+    .test-suggestion {
+      margin-top: 8px;
+      padding: 8px 12px;
+      background: #fff3cd;
+      color: #856404;
+      border-radius: 6px;
+      font-size: 12px;
+    }
+    .test-suggestion a { color: #856404; font-weight: 600; cursor: pointer; text-decoration: underline; }
     /* Password toggle */
     .password-wrapper {
       position: relative;
@@ -312,6 +337,52 @@ export async function adminPage(c: Context<{ Bindings: Bindings }>) {
       font-size: 13px;
     }
     .password-wrapper input { padding-right: 60px; }
+    /* Toggle switch */
+    .toggle-switch {
+      position: relative;
+      display: inline-block;
+      width: 36px;
+      height: 20px;
+      flex-shrink: 0;
+    }
+    .toggle-switch input { opacity: 0; width: 0; height: 0; }
+    .toggle-slider {
+      position: absolute;
+      cursor: pointer;
+      inset: 0;
+      background: #ccc;
+      border-radius: 20px;
+      transition: background 0.2s;
+    }
+    .toggle-slider::before {
+      content: '';
+      position: absolute;
+      height: 14px;
+      width: 14px;
+      left: 3px;
+      bottom: 3px;
+      background: white;
+      border-radius: 50%;
+      transition: transform 0.2s;
+    }
+    .toggle-switch input:checked + .toggle-slider { background: #27ae60; }
+    .toggle-switch input:checked + .toggle-slider::before { transform: translateX(16px); }
+    /* Disabled provider card */
+    .provider-card.disabled-card { opacity: 0.55; border-left-color: #ccc; }
+    .provider-card.disabled-card .card-title { text-decoration: line-through; color: #999; }
+    /* Anthropic primary card */
+    .provider-card.anthropic-primary { border-left-color: #d4a553; }
+    .anthropic-badge {
+      display: inline-block;
+      font-size: 10px;
+      background: #d4a553;
+      color: white;
+      padding: 1px 6px;
+      border-radius: 3px;
+      margin-left: 8px;
+      font-weight: 500;
+      vertical-align: middle;
+    }
   </style>
 </head>
 <body>
@@ -412,6 +483,14 @@ export async function adminPage(c: Context<{ Bindings: Bindings }>) {
           </div>
         </div>
         <div class="form-group">
+          <label>API Format</label>
+          <select id="providerFormat" style="width:100%;padding:8px 12px;font-size:14px;border:1px solid #ddd;border-radius:6px;">
+            <option value="anthropic">Anthropic Messages API</option>
+            <option value="openai">OpenAI Chat Completions</option>
+          </select>
+          <div class="help-text">Select the API format this provider accepts.</div>
+        </div>
+        <div class="form-group">
           <label>Model Mapping</label>
           <div class="help-text">Map Anthropic model names to provider-specific names.</div>
           <div class="kv-editor" id="modelMappingEditor"></div>
@@ -423,7 +502,7 @@ export async function adminPage(c: Context<{ Bindings: Bindings }>) {
           <div class="kv-editor" id="customHeadersEditor"></div>
           <button class="kv-add" onclick="addCustomHeader()">+ Add header</button>
         </div>
-        <div id="testResult" class="test-result"></div>
+        <div id="testResult"></div>
       </div>
       <div class="modal-footer">
         <div class="modal-footer-left">
@@ -441,14 +520,14 @@ export async function adminPage(c: Context<{ Bindings: Bindings }>) {
     const TOKEN = '${escapeHtml(token)}';
     const WORKER_BASE_URL = '${escapeHtml(workerBaseUrl)}';
     var CLAUDE_MODELS = [
-      { id: 'claude-sonnet-4-20250514', label: 'Claude Sonnet 4' },
+      { id: 'claude-sonnet-4-5-20250929', label: 'Claude Sonnet 4' },
       { id: 'claude-opus-4-20250514', label: 'Claude Opus 4' },
-      { id: 'claude-3-5-haiku-20241022', label: 'Claude 3.5 Haiku' },
-      { id: 'claude-3-5-sonnet-20241022', label: 'Claude 3.5 Sonnet (v2)' },
-      { id: 'claude-3-opus-20240229', label: 'Claude 3 Opus' },
+      { id: 'claude-opus-4-6', label: 'Claude Opus 4.6' },
+      { id: 'claude-haiku-4-5-20251001', label: 'Claude 3.5 Haiku' },
     ];
     let providers = [];
     let tokenConfigs = [];
+    var anthropicDisabled = ${anthropicDisabled};
 
     try {
       providers = JSON.parse(${JSON.stringify(config)});
@@ -583,39 +662,70 @@ export async function adminPage(c: Context<{ Bindings: Bindings }>) {
     // ---- Providers ----
     function renderProviders() {
       var container = document.getElementById('providerList');
-      if (providers.length === 0) {
-        container.innerHTML = '<div class="empty-state">No providers configured. Add one to get started.</div>';
-        return;
-      }
-      container.innerHTML = providers.map(function(p, i) {
-        var mappingCount = p.modelMapping ? Object.keys(p.modelMapping).length : 0;
-        return '<div class="card provider-card" data-index="' + i + '" draggable="true"' +
-          ' ondragstart="onDragStart(event,' + i + ')"' +
-          ' ondragover="onDragOver(event)"' +
-          ' ondragenter="onDragEnter(event)"' +
-          ' ondragleave="onDragLeave(event)"' +
-          ' ondrop="onDrop(event,' + i + ')"' +
-          ' ondragend="onDragEnd(event)"' +
-          ' ontouchstart="onTouchStart(event,' + i + ')">' +
-          '<div class="card-header">' +
-            '<div class="drag-handle" aria-label="Drag to reorder">&#9776;</div>' +
-            '<div style="flex:1;min-width:0;">' +
-              '<div style="display:flex;align-items:center;">' +
-                '<span class="priority-badge">' + (i + 1) + '</span>' +
-                '<span class="card-title">' + escapeHtml(p.name) + '</span>' +
-              '</div>' +
-              '<div class="card-subtitle">' + escapeHtml(p.baseUrl) + '</div>' +
-              (mappingCount > 0 ? '<div class="card-meta">Mappings: ' + mappingCount + '</div>' : '') +
+
+      // Anthropic Primary card (always first, fixed position)
+      var anthropicHtml = '<div class="card provider-card anthropic-primary' +
+        (anthropicDisabled ? ' disabled-card' : '') + '">' +
+        '<div class="card-header">' +
+          '<div style="flex:1;min-width:0;">' +
+            '<div style="display:flex;align-items:center;">' +
+              '<span class="priority-badge" style="background:#d4a553;">1</span>' +
+              '<span class="card-title">Anthropic API</span>' +
+              '<span class="anthropic-badge">PRIMARY</span>' +
             '</div>' +
-            '<div class="card-actions">' +
-              '<button class="btn btn-outline btn-sm" onclick="moveProviderUp(' + i + ')"' + (i === 0 ? ' disabled' : '') + ' title="Move up" aria-label="Move up">&#9650;</button>' +
-              '<button class="btn btn-outline btn-sm" onclick="moveProviderDown(' + i + ')"' + (i === providers.length - 1 ? ' disabled' : '') + ' title="Move down" aria-label="Move down">&#9660;</button>' +
-              '<button class="btn btn-outline btn-sm" onclick="openProviderModal(' + i + ')">Edit</button>' +
-              '<button class="btn btn-danger btn-sm" onclick="deleteProvider(' + i + ')">Delete</button>' +
-            '</div>' +
+            '<div class="card-subtitle">https://api.anthropic.com/v1/messages</div>' +
           '</div>' +
-        '</div>';
-      }).join('');
+          '<div class="card-actions">' +
+            '<label class="toggle-switch" title="' + (anthropicDisabled ? 'Enable' : 'Disable') + ' provider">' +
+              '<input type="checkbox" ' + (anthropicDisabled ? '' : 'checked') +
+              ' onchange="toggleAnthropicPrimary(this.checked)">' +
+              '<span class="toggle-slider"></span>' +
+            '</label>' +
+          '</div>' +
+        '</div>' +
+      '</div>';
+
+      // Fallback providers
+      var fallbackHtml = '';
+      if (providers.length === 0) {
+        fallbackHtml = '<div class="empty-state">No fallback providers configured. Add one to get started.</div>';
+      } else {
+        fallbackHtml = providers.map(function(p, i) {
+          var mappingCount = p.modelMapping ? Object.keys(p.modelMapping).length : 0;
+          return '<div class="card provider-card' + (p.disabled ? ' disabled-card' : '') + '" data-index="' + i + '" draggable="true"' +
+            ' ondragstart="onDragStart(event,' + i + ')"' +
+            ' ondragover="onDragOver(event)"' +
+            ' ondragenter="onDragEnter(event)"' +
+            ' ondragleave="onDragLeave(event)"' +
+            ' ondrop="onDrop(event,' + i + ')"' +
+            ' ondragend="onDragEnd(event)"' +
+            ' ontouchstart="onTouchStart(event,' + i + ')">' +
+            '<div class="card-header">' +
+              '<div class="drag-handle" aria-label="Drag to reorder">&#9776;</div>' +
+              '<div style="flex:1;min-width:0;">' +
+                '<div style="display:flex;align-items:center;">' +
+                  '<span class="priority-badge">' + (i + 2) + '</span>' +
+                  '<span class="card-title">' + escapeHtml(p.name) + '</span>' +
+                '</div>' +
+                '<div class="card-subtitle">' + escapeHtml(p.baseUrl) + '</div>' +
+                (p.format === 'openai' ? '<div class="card-meta">Format: OpenAI</div>' : '') +
+                (mappingCount > 0 ? '<div class="card-meta">Mappings: ' + mappingCount + '</div>' : '') +
+              '</div>' +
+              '<div class="card-actions">' +
+                '<label class="toggle-switch" title="' + (p.disabled ? 'Enable' : 'Disable') + ' provider">' +
+                  '<input type="checkbox" ' + (p.disabled ? '' : 'checked') +
+                  ' onchange="toggleProvider(' + i + ', this.checked)">' +
+                  '<span class="toggle-slider"></span>' +
+                '</label>' +
+                '<button class="btn btn-outline btn-sm" onclick="openProviderModal(' + i + ')">Edit</button>' +
+                '<button class="btn btn-danger btn-sm" onclick="deleteProvider(' + i + ')">Delete</button>' +
+              '</div>' +
+            '</div>' +
+          '</div>';
+        }).join('');
+      }
+
+      container.innerHTML = anthropicHtml + fallbackHtml;
       // Sync JSON editor if open
       var jsonSection = document.getElementById('jsonEditorSection');
       if (jsonSection && jsonSection.classList.contains('open')) {
@@ -637,8 +747,7 @@ export async function adminPage(c: Context<{ Bindings: Bindings }>) {
     function openProviderModal(editIndex) {
       var modal = document.getElementById('providerModal');
       var title = document.getElementById('providerModalTitle');
-      document.getElementById('testResult').className = 'test-result';
-      document.getElementById('testResult').textContent = '';
+      document.getElementById('testResult').innerHTML = '';
 
       if (editIndex !== undefined && editIndex >= 0) {
         title.textContent = 'Edit Provider';
@@ -647,6 +756,7 @@ export async function adminPage(c: Context<{ Bindings: Bindings }>) {
         document.getElementById('providerName').value = p.name || '';
         document.getElementById('providerBaseUrl').value = p.baseUrl || '';
         document.getElementById('providerApiKey').value = p.apiKey || '';
+        document.getElementById('providerFormat').value = p.format || 'anthropic';
         modelMappings = p.modelMapping ? Object.entries(p.modelMapping).map(function(e) { return { key: e[0], value: e[1] }; }) : [];
         customHeaders = p.headers ? Object.entries(p.headers).map(function(e) { return { key: e[0], value: e[1] }; }) : [];
       } else {
@@ -655,6 +765,7 @@ export async function adminPage(c: Context<{ Bindings: Bindings }>) {
         document.getElementById('providerName').value = '';
         document.getElementById('providerBaseUrl').value = '';
         document.getElementById('providerApiKey').value = '';
+        document.getElementById('providerFormat').value = 'anthropic';
         modelMappings = [];
         customHeaders = [];
       }
@@ -727,7 +838,9 @@ export async function adminPage(c: Context<{ Bindings: Bindings }>) {
         return null;
       }
 
+      var format = document.getElementById('providerFormat').value;
       var provider = { name: name, baseUrl: baseUrl, apiKey: apiKey };
+      if (format && format !== 'anthropic') provider.format = format;
 
       var mapping = {};
       var hasMapping = false;
@@ -768,14 +881,15 @@ export async function adminPage(c: Context<{ Bindings: Bindings }>) {
       closeProviderModal();
     }
 
+    var lastTestResults = [];
+
     async function testConnection() {
       var provider = getProviderFromForm();
       if (!provider) return;
 
-      var resultEl = document.getElementById('testResult');
+      var container = document.getElementById('testResult');
       var btn = document.getElementById('testConnectionBtn');
-      resultEl.className = 'test-result loading';
-      resultEl.textContent = 'Testing connection...';
+      container.innerHTML = '<div class="test-results-container loading">Testing models...</div>';
       btn.disabled = true;
 
       try {
@@ -785,19 +899,61 @@ export async function adminPage(c: Context<{ Bindings: Bindings }>) {
           body: JSON.stringify(provider)
         });
         var data = await res.json();
-        if (data.success) {
-          resultEl.className = 'test-result success';
-          resultEl.textContent = data.message || 'Connection successful!';
-        } else {
-          resultEl.className = 'test-result error';
-          resultEl.textContent = data.error || 'Connection failed';
+
+        if (data.results) {
+          lastTestResults = data.results;
+          var html = '<div class="test-results-container">';
+          data.results.forEach(function(r) {
+            var icon = r.success ? '&#10003;' : '&#10007;';
+            var cls = r.success ? 'success' : 'error';
+            var detail = r.success
+              ? (r.mappedTo ? 'mapped to ' + escapeHtml(r.mappedTo) : 'OK')
+              : escapeHtml(r.error || 'Failed');
+            html += '<div class="test-model-row ' + cls + '">' +
+              '<span class="test-model-icon">' + icon + '</span>' +
+              '<span class="test-model-name">' + escapeHtml(r.label) + '</span>' +
+              '<span class="test-model-detail">' + detail + '</span>' +
+            '</div>';
+          });
+
+          if (data.suggestion) {
+            html += '<div class="test-suggestion">' +
+              escapeHtml(data.suggestion) +
+              ' <a onclick="suggestMappings()">Add mappings</a>' +
+            '</div>';
+          }
+
+          html += '</div>';
+          container.innerHTML = html;
+        } else if (data.error) {
+          container.innerHTML = '<div class="test-results-container">' +
+            '<div class="test-model-row error">' +
+              '<span class="test-model-icon">&#10007;</span>' +
+              '<span>' + escapeHtml(data.error) + '</span>' +
+            '</div></div>';
         }
       } catch (e) {
-        resultEl.className = 'test-result error';
-        resultEl.textContent = 'Error: ' + e.message;
+        container.innerHTML = '<div class="test-results-container">' +
+          '<div class="test-model-row error">' +
+            '<span class="test-model-icon">&#10007;</span>' +
+            '<span>Error: ' + escapeHtml(e.message) + '</span>' +
+          '</div></div>';
       } finally {
         btn.disabled = false;
       }
+    }
+
+    function suggestMappings() {
+      lastTestResults.forEach(function(r) {
+        if (r.success || r.hasMappingConfigured) return;
+        var alreadyMapped = modelMappings.some(function(m) { return m.key === r.model; });
+        if (!alreadyMapped) {
+          modelMappings.push({ key: r.model, value: '' });
+        }
+      });
+      renderModelMappings();
+      var editor = document.getElementById('modelMappingEditor');
+      if (editor) editor.scrollIntoView({ behavior: 'smooth', block: 'center' });
     }
 
     async function persistProviders() {
@@ -830,14 +986,30 @@ export async function adminPage(c: Context<{ Bindings: Bindings }>) {
       persistProviders();
     }
 
-    function moveProviderUp(index) {
-      if (index <= 0) return;
-      reorderProvider(index, index - 1);
+    async function toggleAnthropicPrimary(enabled) {
+      var disabled = !enabled;
+      try {
+        var res = await fetch('/admin/anthropic-status?token=' + TOKEN, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ disabled: disabled })
+        });
+        if (res.ok) {
+          anthropicDisabled = disabled;
+          renderProviders();
+          showStatus(disabled ? 'Anthropic API disabled' : 'Anthropic API enabled');
+        } else {
+          showStatus('Failed to update: ' + await res.text(), true);
+        }
+      } catch (e) {
+        showStatus('Error: ' + e.message, true);
+      }
     }
 
-    function moveProviderDown(index) {
-      if (index >= providers.length - 1) return;
-      reorderProvider(index, index + 1);
+    function toggleProvider(index, enabled) {
+      providers[index].disabled = !enabled;
+      renderProviders();
+      persistProviders();
     }
 
     function onDragStart(event, index) {
@@ -1025,11 +1197,11 @@ export async function adminPage(c: Context<{ Bindings: Bindings }>) {
 
 function escapeHtml(str: string): string {
   return str
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
 }
 
 /**
@@ -1049,13 +1221,19 @@ export async function postConfig(c: Context<{ Bindings: Bindings }>) {
 
     // Validate
     if (!Array.isArray(providers)) {
-      return c.json({ error: "Config must be an array" }, 400);
+      return c.json({ error: 'Config must be an array' }, 400);
     }
 
     for (const p of providers) {
       if (!p.name || !p.baseUrl || !p.apiKey) {
         return c.json(
           { error: `Invalid provider: missing name, baseUrl, or apiKey` },
+          400,
+        );
+      }
+      if (p.format && p.format !== 'anthropic' && p.format !== 'openai') {
+        return c.json(
+          { error: `Invalid provider format: must be "anthropic" or "openai"` },
           400,
         );
       }
@@ -1089,7 +1267,7 @@ export async function postTokens(c: Context<{ Bindings: Bindings }>) {
 
     // Validate
     if (!Array.isArray(tokens)) {
-      return c.json({ error: "Tokens must be an array" }, 400);
+      return c.json({ error: 'Tokens must be an array' }, 400);
     }
 
     // Validate note format if present
@@ -1097,15 +1275,15 @@ export async function postTokens(c: Context<{ Bindings: Bindings }>) {
     for (const item of tokens) {
       if (
         item &&
-        typeof item === "object" &&
-        "note" in item &&
+        typeof item === 'object' &&
+        'note' in item &&
         (item as TokenConfig).note
       ) {
         if (!notePattern.test((item as TokenConfig).note!)) {
           return c.json(
             {
               error:
-                "Token note must contain only English letters, numbers, spaces, and hyphens",
+                'Token note must contain only English letters, numbers, spaces, and hyphens',
             },
             400,
           );
@@ -1130,8 +1308,125 @@ export async function getSettings(c: Context<{ Bindings: Bindings }>) {
   return c.json({ cooldownDuration: cooldown });
 }
 
+const TEST_MODELS = [
+  { id: 'claude-sonnet-4-5-20250929', label: 'Claude Sonnet 4' },
+  { id: 'claude-opus-4-20250514', label: 'Claude Opus 4' },
+  { id: 'claude-opus-4-6', label: 'Claude Opus 4.6' },
+  { id: 'claude-haiku-4-5-20251001', label: 'Claude 3.5 Haiku' },
+];
+
+interface ModelTestResult {
+  model: string;
+  label: string;
+  success: boolean;
+  message?: string;
+  error?: string;
+  mappedTo?: string;
+  hasMappingConfigured: boolean;
+}
+
+async function testSingleModel(
+  provider: ProviderConfig,
+  modelId: string,
+  modelLabel: string,
+): Promise<ModelTestResult> {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 10000);
+
+  const hasMappingConfigured = !!(
+    provider.modelMapping && provider.modelMapping[modelId]
+  );
+  const mappedModel = hasMappingConfigured
+    ? provider.modelMapping![modelId]
+    : modelId;
+
+  try {
+    const headerName = provider.authHeader || 'x-api-key';
+    const headers: Record<string, string> = {
+      'content-type': 'application/json',
+    };
+
+    if (headerName === 'Authorization') {
+      headers['Authorization'] = provider.apiKey.startsWith('Bearer ')
+        ? provider.apiKey
+        : `Bearer ${provider.apiKey}`;
+    } else {
+      headers[headerName] = provider.apiKey;
+    }
+
+    if (provider.headers) {
+      Object.assign(headers, provider.headers);
+    }
+
+    let testBody: any = {
+      model: mappedModel,
+      max_tokens: 1,
+      messages: [{ role: 'user', content: 'Hi' }],
+    };
+
+    if (provider.format === 'openai') {
+      testBody = convertAnthropicToOpenAI(testBody);
+    }
+
+    const response = await fetch(provider.baseUrl, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(testBody),
+      signal: controller.signal,
+    });
+
+    clearTimeout(timeoutId);
+
+    if (response.ok) {
+      return {
+        model: modelId,
+        label: modelLabel,
+        success: true,
+        message: `HTTP ${response.status}`,
+        mappedTo: hasMappingConfigured ? mappedModel : undefined,
+        hasMappingConfigured,
+      };
+    }
+
+    const errorText = await response.text();
+    let errorMessage = `HTTP ${response.status}`;
+    try {
+      const errorJson = JSON.parse(errorText);
+      errorMessage =
+        errorJson.error?.message || errorJson.message || errorMessage;
+    } catch {
+      if (errorText.length < 200) {
+        errorMessage = errorText || errorMessage;
+      }
+    }
+
+    return {
+      model: modelId,
+      label: modelLabel,
+      success: false,
+      error: errorMessage,
+      mappedTo: hasMappingConfigured ? mappedModel : undefined,
+      hasMappingConfigured,
+    };
+  } catch (error: any) {
+    clearTimeout(timeoutId);
+    return {
+      model: modelId,
+      label: modelLabel,
+      success: false,
+      error:
+        error.name === 'AbortError'
+          ? 'Connection timed out (10s)'
+          : error.message,
+      mappedTo: hasMappingConfigured ? mappedModel : undefined,
+      hasMappingConfigured,
+    };
+  }
+}
+
 /**
  * POST /admin/test-provider - Test connection to a provider
+ * Tests multiple Claude models in parallel and returns per-model results.
  */
 export async function testProvider(c: Context<{ Bindings: Bindings }>) {
   try {
@@ -1139,85 +1434,58 @@ export async function testProvider(c: Context<{ Bindings: Bindings }>) {
 
     if (!provider.name || !provider.baseUrl || !provider.apiKey) {
       return c.json(
-        { success: false, error: "Missing name, baseUrl, or apiKey" },
+        { success: false, error: 'Missing name, baseUrl, or apiKey' },
         400,
       );
     }
 
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 10000);
+    const results = await Promise.all(
+      TEST_MODELS.map((m) => testSingleModel(provider, m.id, m.label)),
+    );
 
-    try {
-      const headerName = provider.authHeader || "x-api-key";
-      const headers: Record<string, string> = {
-        "content-type": "application/json",
-      };
+    const allSuccess = results.every((r) => r.success);
 
-      if (headerName === "Authorization") {
-        headers["Authorization"] = provider.apiKey.startsWith("Bearer ")
-          ? provider.apiKey
-          : `Bearer ${provider.apiKey}`;
-      } else {
-        headers[headerName] = provider.apiKey;
-      }
+    const failedWithoutMapping = results.filter(
+      (r) => !r.success && !r.hasMappingConfigured,
+    );
 
-      if (provider.headers) {
-        Object.assign(headers, provider.headers);
-      }
-
-      // Send a minimal messages request to verify connectivity and auth
-      const testBody = {
-        model: "claude-sonnet-4-20250514",
-        max_tokens: 1,
-        messages: [{ role: "user", content: "Hi" }],
-      };
-
-      // Apply model mapping if present
-      if (provider.modelMapping && provider.modelMapping[testBody.model]) {
-        testBody.model = provider.modelMapping[testBody.model];
-      }
-
-      const response = await fetch(provider.baseUrl, {
-        method: "POST",
-        headers,
-        body: JSON.stringify(testBody),
-        signal: controller.signal,
-      });
-
-      clearTimeout(timeoutId);
-
-      if (response.ok || response.status === 200 || response.status === 201) {
-        return c.json({
-          success: true,
-          message: `Connection successful (HTTP ${response.status})`,
-        });
-      }
-
-      const errorText = await response.text();
-      let errorMessage = `HTTP ${response.status}`;
-      try {
-        const errorJson = JSON.parse(errorText);
-        errorMessage =
-          errorJson.error?.message || errorJson.message || errorMessage;
-      } catch {
-        if (errorText.length < 200) {
-          errorMessage = errorText || errorMessage;
-        }
-      }
-
-      return c.json({ success: false, error: errorMessage });
-    } catch (error: any) {
-      clearTimeout(timeoutId);
-      if (error.name === "AbortError") {
-        return c.json({
-          success: false,
-          error: "Connection timed out (10s)",
-        });
-      }
-      return c.json({ success: false, error: error.message });
+    let suggestion: string | undefined;
+    if (failedWithoutMapping.length > 0) {
+      const modelNames = failedWithoutMapping.map((r) => r.label).join(', ');
+      suggestion = `Consider adding model mappings for: ${modelNames}. Your provider may use different model names.`;
     }
+
+    return c.json({
+      success: allSuccess,
+      results,
+      suggestion,
+    });
   } catch (e: any) {
     return c.json({ success: false, error: e.message }, 400);
+  }
+}
+
+/**
+ * GET /admin/anthropic-status - Get Anthropic primary disabled state
+ */
+export async function getAnthropicStatus(c: Context<{ Bindings: Bindings }>) {
+  const disabled = await getRawAnthropicDisabled(c.env);
+  return c.json({ disabled });
+}
+
+/**
+ * POST /admin/anthropic-status - Set Anthropic primary disabled state
+ */
+export async function postAnthropicStatus(c: Context<{ Bindings: Bindings }>) {
+  try {
+    const body = await c.req.json<{ disabled: boolean }>();
+    if (typeof body.disabled !== 'boolean') {
+      return c.json({ error: 'disabled must be a boolean' }, 400);
+    }
+    await saveAnthropicDisabled(c.env, body.disabled);
+    return c.json({ success: true });
+  } catch (e: any) {
+    return c.json({ error: e.message }, 400);
   }
 }
 
@@ -1228,10 +1496,10 @@ export async function postSettings(c: Context<{ Bindings: Bindings }>) {
   try {
     const body = await c.req.json<{ cooldownDuration: number }>();
     if (
-      typeof body.cooldownDuration !== "number" ||
+      typeof body.cooldownDuration !== 'number' ||
       body.cooldownDuration < 0
     ) {
-      return c.json({ error: "Invalid cooldown duration" }, 400);
+      return c.json({ error: 'Invalid cooldown duration' }, 400);
     }
 
     await saveCooldown(c.env, body.cooldownDuration);

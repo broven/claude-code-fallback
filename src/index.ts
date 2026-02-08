@@ -13,6 +13,8 @@ import {
   getSettings,
   postSettings,
   testProvider,
+  getAnthropicStatus,
+  postAnthropicStatus,
 } from "./admin";
 import {
   isProviderAvailable,
@@ -39,6 +41,8 @@ app.post("/admin/tokens", authMiddleware, postTokens);
 app.get("/admin/settings", authMiddleware, getSettings);
 app.post("/admin/settings", authMiddleware, postSettings);
 app.post("/admin/test-provider", authMiddleware, testProvider);
+app.get("/admin/anthropic-status", authMiddleware, getAnthropicStatus);
+app.post("/admin/anthropic-status", authMiddleware, postAnthropicStatus);
 
 // Main proxy endpoint
 app.post("/v1/messages", async (c) => {
@@ -46,7 +50,9 @@ app.post("/v1/messages", async (c) => {
   const body = await c.req.json();
   const headers = c.req.header();
   const skipAnthropic = headers["x-ccf-debug-skip-anthropic"] === "1";
-
+  console.log(`{
+    "model": ${body.model}
+    }`);
   // Get cooldown from config (defaults to env or 300s)
   const cooldownDuration = config.cooldownDuration;
 
@@ -79,7 +85,11 @@ app.post("/v1/messages", async (c) => {
   let lastErrorResponse: Response | null = null;
   const anthropicName = "anthropic-primary";
 
-  if (!skipAnthropic) {
+  if (config.anthropicPrimaryDisabled) {
+    console.log("[Proxy] Skipping anthropic-primary (disabled by admin)");
+  }
+
+  if (!skipAnthropic && !config.anthropicPrimaryDisabled) {
     // Check circuit breaker
     const isAvailable = await isProviderAvailable(anthropicName, c.env);
 
@@ -165,6 +175,11 @@ app.post("/v1/messages", async (c) => {
   }
 
   for (const provider of config.providers) {
+    if (provider.disabled) {
+      console.log(`[Proxy] Skipping provider ${provider.name} (disabled)`);
+      continue;
+    }
+
     const isAvailable = await isProviderAvailable(provider.name, c.env);
     if (!isAvailable) {
       console.log(
@@ -178,10 +193,15 @@ app.post("/v1/messages", async (c) => {
         provider,
         body,
         headers as Record<string, string>,
+        config,
       );
 
       if (response.ok) {
-        console.log(`[Proxy] Provider ${provider.name} request successful`);
+        console.log(`{
+          status: ${response.status},
+          provider: ${provider.name},
+          model: ${body.model}
+        }`);
         await markProviderSuccess(provider.name, c.env);
         return new Response(response.body, {
           status: response.status,
@@ -191,10 +211,12 @@ app.post("/v1/messages", async (c) => {
 
       const status = response.status;
       const errorText = await response.text();
-      console.log(
-        `[Proxy] Provider ${provider.name} failed with status ${status}`,
-      );
-
+      console.log(`{
+        text: ${errorText},
+        status: ${response.status},
+        provider: ${provider.name},
+        model: ${body.model}
+      }`);
       await markProviderFailed(provider.name, cooldownDuration, c.env);
 
       lastErrorResponse = new Response(errorText, {
@@ -202,13 +224,15 @@ app.post("/v1/messages", async (c) => {
         headers: cleanHeaders(response.headers),
       });
     } catch (error: any) {
-      console.error(`[Proxy] Provider ${provider.name} error:`, error.message);
+      console.log(`{
+        test: ${error.message},
+        status: JSError,
+        provider: ${provider.name},
+        model: ${body.model}
+      }`);
       await markProviderFailed(provider.name, cooldownDuration, c.env);
     }
   }
-
-  // All failed
-  console.log("[Proxy] All providers failed.");
 
   if (lastErrorResponse) {
     return lastErrorResponse;
@@ -219,6 +243,7 @@ app.post("/v1/messages", async (c) => {
       error: {
         type: "fallback_exhausted",
         message: "All API providers failed",
+        model: body.model,
       },
     },
     502,

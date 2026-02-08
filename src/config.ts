@@ -3,6 +3,7 @@ import { Bindings, AppConfig, ProviderConfig, TokenConfig } from './types';
 const KV_KEY = 'providers';
 const TOKENS_KV_KEY = 'allowed_tokens';
 const COOLDOWN_KV_KEY = 'cooldown_duration';
+const ANTHROPIC_DISABLED_KV_KEY = 'anthropic_primary_disabled';
 
 /**
  * Load configuration from KV storage.
@@ -12,12 +13,14 @@ export async function loadConfig(env: Bindings): Promise<AppConfig> {
   let providers: ProviderConfig[] = [];
   let tokenConfigs: TokenConfig[] = [];
   let cooldownDuration = parseInt(env.COOLDOWN_DURATION || '300', 10);
+  let anthropicDisabledJson: string | null = null;
 
   try {
-    const [configJson, tokensJson, cooldownJson] = await Promise.all([
+    const [configJson, tokensJson, cooldownJson, adJson] = await Promise.all([
       env.CONFIG_KV.get(KV_KEY),
       env.CONFIG_KV.get(TOKENS_KV_KEY),
       env.CONFIG_KV.get(COOLDOWN_KV_KEY),
+      env.CONFIG_KV.get(ANTHROPIC_DISABLED_KV_KEY),
     ]);
 
     if (configJson) {
@@ -27,7 +30,7 @@ export async function loadConfig(env: Bindings): Promise<AppConfig> {
         for (const p of parsed) {
           if (!p.name || !p.baseUrl || !p.apiKey) {
             console.warn(
-              `[Config] Skipping invalid provider: ${JSON.stringify(p)} - missing name, baseUrl, or apiKey`
+              `[Config] Skipping invalid provider: ${JSON.stringify(p)} - missing name, baseUrl, or apiKey`,
             );
             continue;
           }
@@ -51,19 +54,29 @@ export async function loadConfig(env: Bindings): Promise<AppConfig> {
         cooldownDuration = parsed;
       }
     }
+
+    anthropicDisabledJson = adJson;
   } catch (e) {
     console.error('[Config] Failed to load config from KV:', e);
   }
 
   const allowedTokens = tokenConfigs.map((tc) => tc.token);
+  const anthropicPrimaryDisabled = anthropicDisabledJson === 'true';
 
   if (debug) {
     console.log(
-      `[Config] Loaded ${providers.length} providers. Allowed tokens: ${allowedTokens.length}. Cooldown: ${cooldownDuration}s. Debug: ${debug}`
+      `[Config] Loaded ${providers.length} providers. Allowed tokens: ${allowedTokens.length}. Cooldown: ${cooldownDuration}s. Debug: ${debug}`,
     );
   }
 
-  return { debug, providers, allowedTokens, tokenConfigs, cooldownDuration };
+  return {
+    debug,
+    providers,
+    allowedTokens,
+    tokenConfigs,
+    cooldownDuration,
+    anthropicPrimaryDisabled,
+  };
 }
 
 /**
@@ -71,7 +84,7 @@ export async function loadConfig(env: Bindings): Promise<AppConfig> {
  */
 export async function saveConfig(
   env: Bindings,
-  providers: ProviderConfig[]
+  providers: ProviderConfig[],
 ): Promise<void> {
   await env.CONFIG_KV.put(KV_KEY, JSON.stringify(providers));
 }
@@ -106,7 +119,7 @@ export function parseTokenConfigs(parsed: unknown[]): TokenConfig[] {
  */
 export async function saveTokens(
   env: Bindings,
-  tokens: TokenConfig[]
+  tokens: TokenConfig[],
 ): Promise<void> {
   await env.CONFIG_KV.put(TOKENS_KV_KEY, JSON.stringify(tokens));
 }
@@ -116,7 +129,7 @@ export async function saveTokens(
  */
 export async function saveCooldown(
   env: Bindings,
-  duration: number
+  duration: number,
 ): Promise<void> {
   await env.CONFIG_KV.put(COOLDOWN_KV_KEY, duration.toString());
 }
@@ -147,4 +160,22 @@ export async function getRawCooldown(env: Bindings): Promise<number> {
     }
   }
   return parseInt(env.COOLDOWN_DURATION || '300', 10);
+}
+
+/**
+ * Get Anthropic primary disabled state from KV storage.
+ */
+export async function getRawAnthropicDisabled(env: Bindings): Promise<boolean> {
+  const val = await env.CONFIG_KV.get(ANTHROPIC_DISABLED_KV_KEY);
+  return val === 'true';
+}
+
+/**
+ * Save Anthropic primary disabled state to KV storage.
+ */
+export async function saveAnthropicDisabled(
+  env: Bindings,
+  disabled: boolean,
+): Promise<void> {
+  await env.CONFIG_KV.put(ANTHROPIC_DISABLED_KV_KEY, disabled.toString());
 }

@@ -10,8 +10,7 @@ export const validProvider: ProviderConfig = {
   apiKey: 'sk-test-key-123',
   authHeader: 'Authorization',
   modelMapping: {
-    'claude-sonnet-4-20250514': 'anthropic/claude-sonnet-4',
-    'claude-3-opus-20240229': 'anthropic/claude-3-opus',
+    'claude-sonnet-4-5-20250929': 'anthropic/claude-sonnet-4',
   },
 };
 
@@ -52,6 +51,17 @@ export const invalidProviderMissingUrl = {
 export const invalidProviderMissingApiKey = {
   name: 'no-apikey-provider',
   baseUrl: 'https://api.example.com/v1/messages',
+};
+
+export const openaiFormatProvider: ProviderConfig = {
+  name: 'openrouter-openai',
+  baseUrl: 'https://openrouter.ai/api/v1/chat/completions',
+  apiKey: 'sk-or-test-key',
+  authHeader: 'Authorization',
+  format: 'openai',
+  modelMapping: {
+    'claude-sonnet-4-5-20250929': 'anthropic/claude-sonnet-4',
+  },
 };
 
 export const multipleProviders: ProviderConfig[] = [
