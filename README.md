@@ -1,7 +1,16 @@
 # Claude Code Fallback Proxy
-[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/broven/claude-code-fallback)
 
-A Cloudflare Workers-based fallback proxy that automatically routes to alternative API providers when the Anthropic API is unavailable.
+[![codecov](https://codecov.io/gh/broven/claude-code-fallback/branch/main/graph/badge.svg)](https://codecov.io/gh/broven/claude-code-fallback)
+
+A fallback proxy for Claude Code (or any Anthropic API client). When you hit rate limits or API errors, automatically routes to alternative providers.
+just like [vercel](https://vercel.com/changelog/claude-code-max-via-ai-gateway-available-now-for-claude-code) and [openreouter](https://openrouter.ai/docs/guides/guides/claude-code-integration) does
+
+## Why This Exists
+
+When using Claude Code or other Anthropic API clients, you might encounter:
+- **Rate limits (429)** — Your API quota is exhausted
+- **Service errors (5xx)** — Temporary Anthropic API downtime
+Instead of manually switching between providers, this proxy automatically fails over to your configured alternatives.
 
 ## How It Works
 
@@ -14,185 +23,112 @@ Claude Code ──► Fallback Proxy ──► Anthropic API
 
 The proxy intercepts API requests. When the Anthropic API returns an error eligible for fallback (401, 403, 429, or 5xx), requests are forwarded to your configured fallback providers in order until one succeeds.
 
-## Features
+### Fallback Strategy
 
-- ✅ **Cloudflare Workers** — Runs globally with zero infrastructure
-- ✅ **Web-based Admin Panel** — Configure providers through a browser UI
-- ✅ **KV Storage** — Persistent configuration managed via Cloudflare KV
-- ✅ **Model Mapping** — Automatically map model names between providers
-- ✅ **Custom Headers** — Support for custom authentication headers
-- ✅ **Token Protection** — Simple token-based admin authentication
+When a request fails, the proxy:
+
+1. **Tries Anthropic API first** — Your primary requests always go to the official API
+2. **Detects eligible errors** — Only fallback on: 401, 403, 429, 5xx (not on 4xx client errors)
+3. **Iterates through providers** — Tries each configured provider in order
+4. **Returns first success** — Or the last error if all fail
+
+**Model Mapping**: Configure model name translation (e.g., `claude-3-opus-20240229` → `anthropic/claude-3-opus`) per provider to ensure compatibility.
+
+## ⚠️ Important Notice
+
+**Use at your own risk.** I have not reviewed Anthropic's Terms of Service to confirm whether using a proxy is permitted. There is a possibility that using this proxy could violate their terms and result in account suspension.
+
+**Current status:** I've been using this proxy personally without issues, but that doesn't guarantee it's safe for all users. Please review [Anthropic's Terms of Service](https://www.anthropic.com/legal/consumer-terms) yourself before deploying, and use this tool at your own discretion.
 
 ## Quick Start
 
-### 1. Create KV Namespace
+### 1. Deploy to Cloudflare
 
-```bash
-npx wrangler kv:namespace create CONFIG
-```
+Click the button below to deploy your own instance:
 
-Copy the `id` from the output and update `wrangler.jsonc`:
+[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/broven/claude-code-fallback)
 
-```jsonc
-"kv_namespaces": [
-  {
-    "binding": "CONFIG_KV",
-    "id": "your-kv-id"  // ← paste here
-  }
-]
-```
+During deployment, you'll be prompted to:
+- **Set ADMIN_TOKEN** — Choose a secure token to protect your admin panel
+- **Create KV namespace** — Cloudflare will create this automatically
 
-### 2. Set Admin Token
+### 2. Configure Providers
 
-```bash
-npx wrangler secret put ADMIN_TOKEN
-```
-
-When prompted, enter a secure token (e.g., a strong random string). You'll use this to access the admin panel.
-
-### 3. Deploy
-
-```bash
-npm run deploy
-```
-
-### 4. Configure Providers
-
-Open your admin panel:
+After deployment, open your admin panel:
 
 ```
-https://your-worker.workers.dev/admin?token=YOUR_TOKEN
+https://your-worker.workers.dev/admin?token=YOUR_ADMIN_TOKEN
 ```
 
-Add providers:
-- **Name**: Any identifier (e.g., "openrouter")
-- **Base URL**: API endpoint
+![Admin Panel - Provider Configuration](docs/images/admin-panel.png)
+
+Click **"Add Provider"** and configure your fallback:
+
+![Add Provider Form](docs/images/add-provider.png)
+
+**Required fields:**
+- **Name**: Any identifier (e.g., "openrouter", "bedrock")
+- **Base URL**: API endpoint (e.g., `https://openrouter.ai/api/v1/chat/completions`)
 - **API Key**: Your authentication credential
+
+**Optional fields:**
 - **Auth Header**: Header name for the key (default: `x-api-key`, use `Authorization` for Bearer tokens)
+- **Model Mapping**: Map model names between providers (JSON format)
 
-## Local Development
+Example model mapping:
+```json
+{
+  "claude-3-opus-20240229": "anthropic/claude-3-opus",
+  "claude-3-sonnet-20240229": "anthropic/claude-3-sonnet"
+}
+```
 
+### 3. Use in Claude Code
+
+After configuring providers, click the **"Show Environment Config"** button in the admin panel:
+
+
+Add these to your Claude Code settings or environment:
+
+**For Claude Code CLI:**
 ```bash
-npm run dev
-# Visit http://localhost:8787/admin?token=123456
+export ANTHROPIC_BASE_URL=https://your-worker.workers.dev
+export ANTHROPIC_API_KEY=your-original-anthropic-key
 ```
 
-The default dev token is `123456` (set in `wrangler.jsonc`). Configure providers and test locally before deploying.
-
-## Configuration Examples
-
-### OpenRouter
-
-```json
-{
-  "name": "openrouter",
-  "baseUrl": "https://openrouter.ai/api/v1/chat/completions",
-  "apiKey": "sk-or-xxx",
-  "authHeader": "Authorization",
-  "modelMapping": {
-    "claude-sonnet-4-20250514": "anthropic/claude-sonnet-4"
-  }
-}
+**For `.env` file:**
+```bash
+ANTHROPIC_BASE_URL=https://your-worker.workers.dev
+ANTHROPIC_API_KEY=your-original-anthropic-key
 ```
 
-### Custom Proxy with x-api-key
+That's it! Claude Code will now automatically fallback when needed.
 
-```json
-{
-  "name": "my-proxy",
-  "baseUrl": "https://my-proxy.example.com/v1/messages",
-  "apiKey": "secret-key-123",
-  "authHeader": "x-api-key",
-  "headers": {
-    "x-custom-header": "value"
-  }
-}
-```
-
-## API Reference
-
-### Proxy Endpoint
-
-**POST** `/v1/messages`
-
-Standard Anthropic API format. Requests are forwarded to Anthropic first, then fallback providers on failure.
-
-### Admin API
-
-**GET** `/admin?token=YOUR_TOKEN`
-- Returns HTML admin panel
-
-**GET** `/admin/config?token=YOUR_TOKEN`
-- Returns current provider configuration as JSON
-
-**POST** `/admin/config?token=YOUR_TOKEN`
-- Update provider configuration
-- Body: JSON array of provider configs
-
-### Health Check
-
-**GET** `/`
-- Returns: Plain text status message with provider count
-
-## Environment Variables
-
-| Variable | Required | Default | Description |
-|----------|----------|---------|-------------|
-| `ADMIN_TOKEN` | Yes | — | Token for protecting admin panel |
-| `DEBUG` | No | `false` | Enable debug logging |
-
-## Architecture
-
-- **Fallback Logic** (`src/index.ts:18-150`) — Main proxy with Anthropic API retry and provider iteration
-- **Admin Panel** (`src/admin.ts`) — HTML UI and API handlers for configuration management
-- **Configuration** (`src/config.ts`) — KV storage operations
-- **Provider Logic** (`src/utils/provider.ts`) — Request forwarding with model mapping and auth handling
-
-## Cloudflare Bindings
-
-- `CONFIG_KV` — KV namespace for storing provider configurations
-- `ADMIN_TOKEN` — Environment variable with admin authentication token
-- `DEBUG` — Environment variable for debug mode
-
-## Limits & Notes
-
-- Cloudflare Workers have a **30-second execution timeout** — requests must complete within this time
-- KV operations have eventual consistency (rarely an issue in practice)
-- The proxy passes through response bodies directly; no caching or transformation
-
-## Troubleshooting
-
-**"Unauthorized" when accessing `/admin`**
-- Check that your token matches the `ADMIN_TOKEN` in Cloudflare Dashboard Settings
-- Try passing it as a query param: `/admin?token=YOUR_TOKEN`
-
-**Providers not being used**
-- Verify they're configured in the admin panel
-- Check Worker logs: `npm run tail`
-- Ensure provider API keys are valid
-- Test the provider endpoint directly with curl
-
-**Changes not persisting**
-- Ensure KV namespace `id` is correctly set in `wrangler.jsonc`
-- Verify KV namespace exists: `npx wrangler kv:namespace list`
 
 ## Development
 
-Install dependencies:
+### Local Setup
 ```bash
 npm install
+npm run dev
+# Visit http://localhost:8787/admin?token=dev-token
 ```
 
-Run type checks:
+### Testing
 ```bash
-npx tsc --noEmit
+npm test                  # Run all tests
+npm run test:watch        # Watch mode
+npm run test:coverage     # Coverage report
 ```
 
-Deploy preview:
+Current test coverage: **99%+** (142 tests)
+
+### Deployment
 ```bash
-npm run deploy --env staging
+npm run deploy            # Deploy to Cloudflare
+npm run tail              # Stream production logs
 ```
 
 ## License
 
-ISC
+Anti 996-License
