@@ -312,7 +312,7 @@ describe('adminPage', () => {
     expect(html).toContain('priority-badge');
   });
 
-  it('includes move up/down buttons for provider reordering', async () => {
+  it('includes toggle switch for provider enable/disable', async () => {
     const env = createMockBindings({
       adminToken: 'test-token',
       kvData: { providers: JSON.stringify(multipleProviders) },
@@ -322,8 +322,9 @@ describe('adminPage', () => {
     const response = await app.fetch(request, env);
     const html = await response.text();
 
-    expect(html).toContain('moveProviderUp');
-    expect(html).toContain('moveProviderDown');
+    expect(html).toContain('toggle-switch');
+    expect(html).toContain('toggleProvider');
+    expect(html).toContain('toggleAnthropicPrimary');
     expect(html).toContain('reorderProvider');
   });
 

@@ -5,6 +5,7 @@
 A fallback proxy for Claude Code (or any Anthropic API client). When you hit rate limits or API errors, automatically routes to alternative providers.
 just like [vercel](https://vercel.com/changelog/claude-code-max-via-ai-gateway-available-now-for-claude-code) and [openreouter](https://openrouter.ai/docs/guides/guides/claude-code-integration) does
 
+[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/broven/claude-code-fallback)
 ## Why This Exists
 
 When using Claude Code or other Anthropic API clients, you might encounter:

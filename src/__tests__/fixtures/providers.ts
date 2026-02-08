@@ -54,6 +54,17 @@ export const invalidProviderMissingApiKey = {
   baseUrl: 'https://api.example.com/v1/messages',
 };
 
+export const openaiFormatProvider: ProviderConfig = {
+  name: 'openrouter-openai',
+  baseUrl: 'https://openrouter.ai/api/v1/chat/completions',
+  apiKey: 'sk-or-test-key',
+  authHeader: 'Authorization',
+  format: 'openai',
+  modelMapping: {
+    'claude-sonnet-4-20250514': 'anthropic/claude-sonnet-4',
+  },
+};
+
 export const multipleProviders: ProviderConfig[] = [
   validProvider,
   minimalProvider,

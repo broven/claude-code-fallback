@@ -13,6 +13,8 @@ import {
   getSettings,
   postSettings,
   testProvider,
+  getAnthropicStatus,
+  postAnthropicStatus,
 } from "./admin";
 import {
   isProviderAvailable,
@@ -39,6 +41,8 @@ app.post("/admin/tokens", authMiddleware, postTokens);
 app.get("/admin/settings", authMiddleware, getSettings);
 app.post("/admin/settings", authMiddleware, postSettings);
 app.post("/admin/test-provider", authMiddleware, testProvider);
+app.get("/admin/anthropic-status", authMiddleware, getAnthropicStatus);
+app.post("/admin/anthropic-status", authMiddleware, postAnthropicStatus);
 
 // Main proxy endpoint
 app.post("/v1/messages", async (c) => {
@@ -79,7 +83,11 @@ app.post("/v1/messages", async (c) => {
   let lastErrorResponse: Response | null = null;
   const anthropicName = "anthropic-primary";
 
-  if (!skipAnthropic) {
+  if (config.anthropicPrimaryDisabled) {
+    console.log("[Proxy] Skipping anthropic-primary (disabled by admin)");
+  }
+
+  if (!skipAnthropic && !config.anthropicPrimaryDisabled) {
     // Check circuit breaker
     const isAvailable = await isProviderAvailable(anthropicName, c.env);
 
@@ -165,6 +173,11 @@ app.post("/v1/messages", async (c) => {
   }
 
   for (const provider of config.providers) {
+    if (provider.disabled) {
+      console.log(`[Proxy] Skipping provider ${provider.name} (disabled)`);
+      continue;
+    }
+
     const isAvailable = await isProviderAvailable(provider.name, c.env);
     if (!isAvailable) {
       console.log(

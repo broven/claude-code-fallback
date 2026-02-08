@@ -302,11 +302,15 @@ describe('testProvider success and error paths', () => {
     });
 
     const response = await app.fetch(request, env);
-    const data = await response.json() as { success: boolean; message: string };
+    const data = await response.json() as any;
 
     expect(response.status).toBe(200);
     expect(data.success).toBe(true);
-    expect(data.message).toContain('200');
+    expect(data.results).toHaveLength(4);
+    data.results.forEach((r: any) => {
+      expect(r.success).toBe(true);
+      expect(r.message).toContain('200');
+    });
 
     globalThis.fetch = originalFetch;
   });
@@ -332,21 +336,25 @@ describe('testProvider success and error paths', () => {
     });
 
     const response = await app.fetch(request, env);
-    const data = await response.json() as { success: boolean; message: string };
+    const data = await response.json() as any;
 
     expect(response.status).toBe(200);
     expect(data.success).toBe(true);
-    expect(data.message).toContain('201');
+    expect(data.results).toHaveLength(4);
+    data.results.forEach((r: any) => {
+      expect(r.success).toBe(true);
+      expect(r.message).toContain('201');
+    });
 
     globalThis.fetch = originalFetch;
   });
 
   it('handles HTTP error with JSON error message', async () => {
-    const mockFetch = vi.fn().mockResolvedValue(
-      new Response(JSON.stringify({ error: { message: 'Invalid API key' } }), {
+    const mockFetch = vi.fn().mockImplementation(() =>
+      Promise.resolve(new Response(JSON.stringify({ error: { message: 'Invalid API key' } }), {
         status: 401,
         headers: { 'Content-Type': 'application/json' },
-      })
+      }))
     );
     globalThis.fetch = mockFetch as any;
 
@@ -362,21 +370,24 @@ describe('testProvider success and error paths', () => {
     });
 
     const response = await app.fetch(request, env);
-    const data = await response.json() as { success: boolean; error: string };
+    const data = await response.json() as any;
 
     expect(response.status).toBe(200);
     expect(data.success).toBe(false);
-    expect(data.error).toContain('Invalid API key');
+    data.results.forEach((r: any) => {
+      expect(r.success).toBe(false);
+      expect(r.error).toContain('Invalid API key');
+    });
 
     globalThis.fetch = originalFetch;
   });
 
   it('handles HTTP error with plain text response (short)', async () => {
-    const mockFetch = vi.fn().mockResolvedValue(
-      new Response('Unauthorized', {
+    const mockFetch = vi.fn().mockImplementation(() =>
+      Promise.resolve(new Response('Unauthorized', {
         status: 401,
         headers: { 'Content-Type': 'text/plain' },
-      })
+      }))
     );
     globalThis.fetch = mockFetch as any;
 
@@ -392,22 +403,25 @@ describe('testProvider success and error paths', () => {
     });
 
     const response = await app.fetch(request, env);
-    const data = await response.json() as { success: boolean; error: string };
+    const data = await response.json() as any;
 
     expect(response.status).toBe(200);
     expect(data.success).toBe(false);
-    expect(data.error).toContain('Unauthorized');
+    data.results.forEach((r: any) => {
+      expect(r.success).toBe(false);
+      expect(r.error).toContain('Unauthorized');
+    });
 
     globalThis.fetch = originalFetch;
   });
 
   it('handles HTTP error with long text response (truncated)', async () => {
     const longText = 'A'.repeat(250);
-    const mockFetch = vi.fn().mockResolvedValue(
-      new Response(longText, {
+    const mockFetch = vi.fn().mockImplementation(() =>
+      Promise.resolve(new Response(longText, {
         status: 500,
         headers: { 'Content-Type': 'text/html' },
-      })
+      }))
     );
     globalThis.fetch = mockFetch as any;
 
@@ -423,12 +437,15 @@ describe('testProvider success and error paths', () => {
     });
 
     const response = await app.fetch(request, env);
-    const data = await response.json() as { success: boolean; error: string };
+    const data = await response.json() as any;
 
     expect(response.status).toBe(200);
     expect(data.success).toBe(false);
-    expect(data.error).toContain('HTTP 500');
-    expect(data.error).not.toContain(longText); // Should not include long text
+    data.results.forEach((r: any) => {
+      expect(r.success).toBe(false);
+      expect(r.error).toContain('HTTP 500');
+      expect(r.error).not.toContain(longText);
+    });
 
     globalThis.fetch = originalFetch;
   });
@@ -540,9 +557,13 @@ describe('testProvider success and error paths', () => {
   });
 
   it('applies model mapping when configured', async () => {
-    const mockFetch = vi.fn().mockResolvedValue(
-      new Response(JSON.stringify({ id: 'msg_123' }), { status: 200 })
-    );
+    const fetchBodies: any[] = [];
+    const mockFetch = vi.fn().mockImplementation((_url: string, options: any) => {
+      fetchBodies.push(JSON.parse(options.body));
+      return Promise.resolve(
+        new Response(JSON.stringify({ id: 'msg_123' }), { status: 200 })
+      );
+    });
     globalThis.fetch = mockFetch as any;
 
     const env = createMockBindings({ adminToken: 'test-token' });
@@ -560,15 +581,23 @@ describe('testProvider success and error paths', () => {
     });
 
     const response = await app.fetch(request, env);
-    const data = await response.json() as { success: boolean };
+    const data = await response.json() as any;
 
     expect(data.success).toBe(true);
-    expect(mockFetch).toHaveBeenCalledWith(
-      expect.any(String),
-      expect.objectContaining({
-        body: expect.stringContaining('anthropic/claude-sonnet-4'),
-      })
-    );
+    const models = fetchBodies.map((b) => b.model);
+    expect(models).toContain('anthropic/claude-sonnet-4');
+    // Unmapped models use original IDs
+    expect(models).toContain('claude-opus-4-20250514');
+    expect(models).toContain('claude-3-5-haiku-20241022');
+
+    // Check mappedTo in results
+    const sonnetResult = data.results.find((r: any) => r.model === 'claude-sonnet-4-20250514');
+    expect(sonnetResult.mappedTo).toBe('anthropic/claude-sonnet-4');
+    expect(sonnetResult.hasMappingConfigured).toBe(true);
+
+    const opusResult = data.results.find((r: any) => r.model === 'claude-opus-4-20250514');
+    expect(opusResult.mappedTo).toBeUndefined();
+    expect(opusResult.hasMappingConfigured).toBe(false);
 
     globalThis.fetch = originalFetch;
   });
@@ -589,18 +618,21 @@ describe('testProvider success and error paths', () => {
     });
 
     const response = await app.fetch(request, env);
-    const data = await response.json() as { success: boolean; error: string };
+    const data = await response.json() as any;
 
     expect(response.status).toBe(200);
     expect(data.success).toBe(false);
-    expect(data.error).toContain('Network error');
+    data.results.forEach((r: any) => {
+      expect(r.success).toBe(false);
+      expect(r.error).toContain('Network error');
+    });
 
     globalThis.fetch = originalFetch;
   });
 
   it('handles timeout (AbortError)', async () => {
     const mockFetch = vi.fn().mockImplementation(() => {
-      return new Promise((resolve, reject) => {
+      return new Promise((_resolve, reject) => {
         setTimeout(() => {
           const error = new Error('The operation was aborted');
           error.name = 'AbortError';
@@ -622,12 +654,146 @@ describe('testProvider success and error paths', () => {
     });
 
     const response = await app.fetch(request, env);
-    const data = await response.json() as { success: boolean; error: string };
+    const data = await response.json() as any;
 
     expect(response.status).toBe(200);
     expect(data.success).toBe(false);
-    expect(data.error).toContain('timed out');
+    data.results.forEach((r: any) => {
+      expect(r.success).toBe(false);
+      expect(r.error).toContain('timed out');
+    });
 
     globalThis.fetch = originalFetch;
   }, 15000); // Increase timeout for this test
+
+  it('returns results array with 4 models', async () => {
+    const mockFetch = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ id: 'msg_test' }), { status: 200 })
+    );
+    globalThis.fetch = mockFetch as any;
+
+    const env = createMockBindings({ adminToken: 'test-token' });
+    const request = createRequest('/admin/test-provider', {
+      method: 'POST',
+      token: 'test-token',
+      body: {
+        name: 'test-provider',
+        baseUrl: 'https://api.example.com/v1/messages',
+        apiKey: 'sk-test-key',
+      },
+    });
+
+    const response = await app.fetch(request, env);
+    const data = await response.json() as any;
+
+    expect(data.success).toBe(true);
+    expect(data.results).toHaveLength(4);
+    expect(data.results.map((r: any) => r.model)).toEqual([
+      'claude-sonnet-4-20250514',
+      'claude-opus-4-20250514',
+      'claude-opus-4-6-20250415',
+      'claude-3-5-haiku-20241022',
+    ]);
+    data.results.forEach((r: any) => {
+      expect(r.success).toBe(true);
+      expect(r.label).toBeDefined();
+    });
+
+    globalThis.fetch = originalFetch;
+  });
+
+  it('reports per-model failures independently', async () => {
+    let callCount = 0;
+    const mockFetch = vi.fn().mockImplementation(() => {
+      callCount++;
+      if (callCount === 1) {
+        return Promise.resolve(
+          new Response(JSON.stringify({ id: 'msg_test' }), { status: 200 })
+        );
+      }
+      return Promise.resolve(
+        new Response(JSON.stringify({ error: { message: 'Model not found' } }), { status: 404 })
+      );
+    });
+    globalThis.fetch = mockFetch as any;
+
+    const env = createMockBindings({ adminToken: 'test-token' });
+    const request = createRequest('/admin/test-provider', {
+      method: 'POST',
+      token: 'test-token',
+      body: {
+        name: 'test-provider',
+        baseUrl: 'https://api.example.com/v1/messages',
+        apiKey: 'sk-test-key',
+      },
+    });
+
+    const response = await app.fetch(request, env);
+    const data = await response.json() as any;
+
+    expect(data.success).toBe(false);
+    expect(data.results.filter((r: any) => r.success)).toHaveLength(1);
+    expect(data.results.filter((r: any) => !r.success)).toHaveLength(3);
+
+    globalThis.fetch = originalFetch;
+  });
+
+  it('includes suggestion when models fail without mapping', async () => {
+    const mockFetch = vi.fn().mockImplementation(() =>
+      Promise.resolve(new Response(JSON.stringify({ error: { message: 'Not found' } }), { status: 404 }))
+    );
+    globalThis.fetch = mockFetch as any;
+
+    const env = createMockBindings({ adminToken: 'test-token' });
+    const request = createRequest('/admin/test-provider', {
+      method: 'POST',
+      token: 'test-token',
+      body: {
+        name: 'test-provider',
+        baseUrl: 'https://api.example.com/v1/messages',
+        apiKey: 'sk-test-key',
+      },
+    });
+
+    const response = await app.fetch(request, env);
+    const data = await response.json() as any;
+
+    expect(data.success).toBe(false);
+    expect(data.suggestion).toBeDefined();
+    expect(data.suggestion).toContain('model mapping');
+
+    globalThis.fetch = originalFetch;
+  });
+
+  it('does not include suggestion when failed models have mappings', async () => {
+    const mockFetch = vi.fn().mockImplementation(() =>
+      Promise.resolve(new Response(JSON.stringify({ error: { message: 'Auth error' } }), { status: 401 }))
+    );
+    globalThis.fetch = mockFetch as any;
+
+    const env = createMockBindings({ adminToken: 'test-token' });
+    const request = createRequest('/admin/test-provider', {
+      method: 'POST',
+      token: 'test-token',
+      body: {
+        name: 'test-provider',
+        baseUrl: 'https://api.example.com/v1/messages',
+        apiKey: 'sk-test-key',
+        modelMapping: {
+          'claude-sonnet-4-20250514': 'mapped-sonnet',
+          'claude-opus-4-20250514': 'mapped-opus',
+          'claude-opus-4-6-20250415': 'mapped-opus-46',
+          'claude-3-5-haiku-20241022': 'mapped-haiku',
+        },
+      },
+    });
+
+    const response = await app.fetch(request, env);
+    const data = await response.json() as any;
+
+    expect(data.success).toBe(false);
+    expect(data.suggestion).toBeUndefined();
+
+    globalThis.fetch = originalFetch;
+  });
 });

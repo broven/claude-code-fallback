@@ -64,6 +64,54 @@ export const successResponse = {
   },
 };
 
+export const openaiSuccessResponse = {
+  id: 'chatcmpl-123',
+  object: 'chat.completion',
+  choices: [
+    {
+      index: 0,
+      message: { role: 'assistant', content: 'Hello! How can I help you today?' },
+      finish_reason: 'stop',
+    },
+  ],
+  model: 'anthropic/claude-sonnet-4',
+  usage: { prompt_tokens: 10, completion_tokens: 15, total_tokens: 25 },
+};
+
+export const openaiToolCallResponse = {
+  id: 'chatcmpl-456',
+  object: 'chat.completion',
+  choices: [
+    {
+      index: 0,
+      message: {
+        role: 'assistant',
+        content: null,
+        tool_calls: [
+          {
+            id: 'call_abc',
+            type: 'function',
+            function: {
+              name: 'get_weather',
+              arguments: '{"location":"NYC"}',
+            },
+          },
+        ],
+      },
+      finish_reason: 'tool_calls',
+    },
+  ],
+  model: 'anthropic/claude-sonnet-4',
+  usage: { prompt_tokens: 20, completion_tokens: 10, total_tokens: 30 },
+};
+
+export const openaiStreamChunks = [
+  'data: {"id":"chatcmpl-123","choices":[{"delta":{"role":"assistant","content":""},"index":0}]}\n\n',
+  'data: {"id":"chatcmpl-123","choices":[{"delta":{"content":"Hello"},"index":0}]}\n\n',
+  'data: {"id":"chatcmpl-123","choices":[{"delta":{"content":"!"},"index":0,"finish_reason":"stop"}]}\n\n',
+  'data: [DONE]\n\n',
+];
+
 export const errorResponses = {
   rateLimited: {
     error: {
