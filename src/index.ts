@@ -50,7 +50,9 @@ app.post("/v1/messages", async (c) => {
   const body = await c.req.json();
   const headers = c.req.header();
   const skipAnthropic = headers["x-ccf-debug-skip-anthropic"] === "1";
-
+  console.log(`{
+    "model": ${body.model}
+    }`);
   // Get cooldown from config (defaults to env or 300s)
   const cooldownDuration = config.cooldownDuration;
 
