@@ -12,6 +12,7 @@ import {
   postTokens,
   getSettings,
   postSettings,
+  testProvider,
 } from "./admin";
 import {
   isProviderAvailable,
@@ -37,6 +38,7 @@ app.get("/admin/tokens", authMiddleware, getTokens);
 app.post("/admin/tokens", authMiddleware, postTokens);
 app.get("/admin/settings", authMiddleware, getSettings);
 app.post("/admin/settings", authMiddleware, postSettings);
+app.post("/admin/test-provider", authMiddleware, testProvider);
 
 // Main proxy endpoint
 app.post("/v1/messages", async (c) => {
@@ -220,7 +222,6 @@ app.post("/v1/messages", async (c) => {
       },
     },
     502,
-    1
   );
 });
 

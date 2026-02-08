@@ -47,5 +47,6 @@ export function createMockBindings(options: {
     DEBUG: debug ? 'true' : 'false',
     ADMIN_TOKEN: adminToken,
     CONFIG_KV: createMockKV(kvData),
+    COOLDOWN_DURATION: '300',
   };
 }

@@ -11,12 +11,21 @@ export interface ProviderConfig {
 }
 
 /**
+ * Access token with optional note for observability
+ */
+export interface TokenConfig {
+  token: string;
+  note?: string;
+}
+
+/**
  * Application configuration
  */
 export interface AppConfig {
   debug: boolean;
   providers: ProviderConfig[];
   allowedTokens: string[];
+  tokenConfigs: TokenConfig[];
   cooldownDuration: number;
 }
 

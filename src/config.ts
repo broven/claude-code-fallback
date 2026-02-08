@@ -1,4 +1,4 @@
-import { Bindings, AppConfig, ProviderConfig } from './types';
+import { Bindings, AppConfig, ProviderConfig, TokenConfig } from './types';
 
 const KV_KEY = 'providers';
 const TOKENS_KV_KEY = 'allowed_tokens';
@@ -10,7 +10,7 @@ const COOLDOWN_KV_KEY = 'cooldown_duration';
 export async function loadConfig(env: Bindings): Promise<AppConfig> {
   const debug = env.DEBUG === 'true';
   let providers: ProviderConfig[] = [];
-  let allowedTokens: string[] = [];
+  let tokenConfigs: TokenConfig[] = [];
   let cooldownDuration = parseInt(env.COOLDOWN_DURATION || '300', 10);
 
   try {
@@ -41,9 +41,7 @@ export async function loadConfig(env: Bindings): Promise<AppConfig> {
     if (tokensJson) {
       const parsed = JSON.parse(tokensJson);
       if (Array.isArray(parsed)) {
-        allowedTokens = parsed.filter(
-          (t: any) => typeof t === 'string' && t.length > 0
-        );
+        tokenConfigs = parseTokenConfigs(parsed);
       }
     }
 
@@ -57,13 +55,15 @@ export async function loadConfig(env: Bindings): Promise<AppConfig> {
     console.error('[Config] Failed to load config from KV:', e);
   }
 
+  const allowedTokens = tokenConfigs.map((tc) => tc.token);
+
   if (debug) {
     console.log(
       `[Config] Loaded ${providers.length} providers. Allowed tokens: ${allowedTokens.length}. Cooldown: ${cooldownDuration}s. Debug: ${debug}`
     );
   }
 
-  return { debug, providers, allowedTokens, cooldownDuration };
+  return { debug, providers, allowedTokens, tokenConfigs, cooldownDuration };
 }
 
 /**
@@ -77,11 +77,36 @@ export async function saveConfig(
 }
 
 /**
+ * Parse token configs with backward compatibility.
+ * Handles both old string[] format and new TokenConfig[] format.
+ */
+export function parseTokenConfigs(parsed: unknown[]): TokenConfig[] {
+  return parsed
+    .map((item) => {
+      if (typeof item === 'string' && item.length > 0) {
+        return { token: item };
+      }
+      if (
+        item &&
+        typeof item === 'object' &&
+        'token' in item &&
+        typeof (item as TokenConfig).token === 'string' &&
+        (item as TokenConfig).token.length > 0
+      ) {
+        const tc = item as TokenConfig;
+        return { token: tc.token, ...(tc.note ? { note: tc.note } : {}) };
+      }
+      return null;
+    })
+    .filter((t): t is TokenConfig => t !== null);
+}
+
+/**
  * Save allowed tokens to KV storage.
  */
 export async function saveTokens(
   env: Bindings,
-  tokens: string[]
+  tokens: TokenConfig[]
 ): Promise<void> {
   await env.CONFIG_KV.put(TOKENS_KV_KEY, JSON.stringify(tokens));
 }

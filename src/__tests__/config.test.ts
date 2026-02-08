@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { loadConfig, saveConfig, getRawConfig, saveCooldown, getRawCooldown } from '../config';
+import { loadConfig, saveConfig, getRawConfig, saveCooldown, getRawCooldown, parseTokenConfigs } from '../config';
 import { createMockBindings } from './mocks/kv';
 import {
   validProvider,
@@ -411,5 +411,120 @@ describe('getRawConfig', () => {
     const result = await getRawConfig(env);
 
     expect(result).toBe(customJson);
+  });
+});
+
+describe('parseTokenConfigs', () => {
+  it('converts string array to TokenConfig array', () => {
+    const result = parseTokenConfigs(['sk-1', 'sk-2']);
+
+    expect(result).toEqual([
+      { token: 'sk-1' },
+      { token: 'sk-2' },
+    ]);
+  });
+
+  it('passes through TokenConfig objects', () => {
+    const result = parseTokenConfigs([
+      { token: 'sk-1', note: 'test note' },
+      { token: 'sk-2' },
+    ]);
+
+    expect(result).toEqual([
+      { token: 'sk-1', note: 'test note' },
+      { token: 'sk-2' },
+    ]);
+  });
+
+  it('handles mixed string and TokenConfig array', () => {
+    const result = parseTokenConfigs([
+      'sk-string',
+      { token: 'sk-object', note: 'with note' },
+    ]);
+
+    expect(result).toEqual([
+      { token: 'sk-string' },
+      { token: 'sk-object', note: 'with note' },
+    ]);
+  });
+
+  it('filters out empty strings', () => {
+    const result = parseTokenConfigs(['sk-valid', '', 'sk-also-valid']);
+
+    expect(result).toEqual([
+      { token: 'sk-valid' },
+      { token: 'sk-also-valid' },
+    ]);
+  });
+
+  it('filters out invalid items', () => {
+    const result = parseTokenConfigs([
+      'sk-valid',
+      123 as any,
+      null as any,
+      undefined as any,
+      { token: '' },
+      { notAToken: 'foo' } as any,
+    ]);
+
+    expect(result).toEqual([{ token: 'sk-valid' }]);
+  });
+
+  it('returns empty array for empty input', () => {
+    expect(parseTokenConfigs([])).toEqual([]);
+  });
+});
+
+describe('loadConfig token handling', () => {
+  beforeEach(() => {
+    vi.spyOn(console, 'log').mockImplementation(() => {});
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('loads TokenConfig format and extracts allowedTokens', async () => {
+    const tokenConfigs = [
+      { token: 'sk-cc-1', note: 'dev' },
+      { token: 'sk-cc-2' },
+    ];
+    const env = createMockBindings({
+      kvData: { allowed_tokens: JSON.stringify(tokenConfigs) },
+    });
+
+    const config = await loadConfig(env);
+
+    expect(config.allowedTokens).toEqual(['sk-cc-1', 'sk-cc-2']);
+    expect(config.tokenConfigs).toEqual([
+      { token: 'sk-cc-1', note: 'dev' },
+      { token: 'sk-cc-2' },
+    ]);
+  });
+
+  it('migrates old string[] tokens to tokenConfigs', async () => {
+    const oldTokens = ['sk-old-1', 'sk-old-2'];
+    const env = createMockBindings({
+      kvData: { allowed_tokens: JSON.stringify(oldTokens) },
+    });
+
+    const config = await loadConfig(env);
+
+    expect(config.allowedTokens).toEqual(['sk-old-1', 'sk-old-2']);
+    expect(config.tokenConfigs).toEqual([
+      { token: 'sk-old-1' },
+      { token: 'sk-old-2' },
+    ]);
+  });
+
+  it('returns empty tokenConfigs when no tokens configured', async () => {
+    const env = createMockBindings();
+
+    const config = await loadConfig(env);
+
+    expect(config.allowedTokens).toEqual([]);
+    expect(config.tokenConfigs).toEqual([]);
   });
 });
