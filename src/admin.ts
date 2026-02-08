@@ -236,7 +236,7 @@ export async function adminPage(c: Context<{ Bindings: Bindings }>) {
       margin-bottom: 6px;
       align-items: center;
     }
-    .kv-row input { flex: 1; padding: 6px 10px; font-size: 13px; }
+    .kv-row input, .kv-row select { flex: 1; padding: 6px 10px; font-size: 13px; }
     .kv-remove {
       background: none;
       border: none;
@@ -381,11 +381,6 @@ export async function adminPage(c: Context<{ Bindings: Bindings }>) {
           </div>
         </div>
         <div class="form-group">
-          <label>Auth Header</label>
-          <input type="text" id="providerAuthHeader" placeholder="x-api-key" value="x-api-key">
-          <div class="help-text">Use "Authorization" for Bearer token authentication.</div>
-        </div>
-        <div class="form-group">
           <label>Model Mapping</label>
           <div class="help-text">Map Anthropic model names to provider-specific names.</div>
           <div class="kv-editor" id="modelMappingEditor"></div>
@@ -414,6 +409,13 @@ export async function adminPage(c: Context<{ Bindings: Bindings }>) {
   <script>
     const TOKEN = '${escapeHtml(token)}';
     const WORKER_BASE_URL = '${escapeHtml(workerBaseUrl)}';
+    var CLAUDE_MODELS = [
+      { id: 'claude-sonnet-4-20250514', label: 'Claude Sonnet 4' },
+      { id: 'claude-opus-4-20250514', label: 'Claude Opus 4' },
+      { id: 'claude-3-5-haiku-20241022', label: 'Claude 3.5 Haiku' },
+      { id: 'claude-3-5-sonnet-20241022', label: 'Claude 3.5 Sonnet (v2)' },
+      { id: 'claude-3-opus-20240229', label: 'Claude 3 Opus' },
+    ];
     let providers = [];
     let tokenConfigs = [];
 
@@ -561,10 +563,7 @@ export async function adminPage(c: Context<{ Bindings: Bindings }>) {
             '<div>' +
               '<div class="card-title">' + escapeHtml(p.name) + '</div>' +
               '<div class="card-subtitle">' + escapeHtml(p.baseUrl) + '</div>' +
-              '<div class="card-meta">' +
-                'Auth: ' + escapeHtml(p.authHeader || 'x-api-key') +
-                (mappingCount > 0 ? ' | Mappings: ' + mappingCount : '') +
-              '</div>' +
+              (mappingCount > 0 ? '<div class="card-meta">Mappings: ' + mappingCount + '</div>' : '') +
             '</div>' +
             '<div class="card-actions">' +
               '<button class="btn btn-outline btn-sm" onclick="openProviderModal(' + i + ')">Edit</button>' +
@@ -599,7 +598,6 @@ export async function adminPage(c: Context<{ Bindings: Bindings }>) {
         document.getElementById('providerName').value = p.name || '';
         document.getElementById('providerBaseUrl').value = p.baseUrl || '';
         document.getElementById('providerApiKey').value = p.apiKey || '';
-        document.getElementById('providerAuthHeader').value = p.authHeader || 'x-api-key';
         modelMappings = p.modelMapping ? Object.entries(p.modelMapping).map(function(e) { return { key: e[0], value: e[1] }; }) : [];
         customHeaders = p.headers ? Object.entries(p.headers).map(function(e) { return { key: e[0], value: e[1] }; }) : [];
       } else {
@@ -608,7 +606,6 @@ export async function adminPage(c: Context<{ Bindings: Bindings }>) {
         document.getElementById('providerName').value = '';
         document.getElementById('providerBaseUrl').value = '';
         document.getElementById('providerApiKey').value = '';
-        document.getElementById('providerAuthHeader').value = 'x-api-key';
         modelMappings = [];
         customHeaders = [];
       }
@@ -637,8 +634,13 @@ export async function adminPage(c: Context<{ Bindings: Bindings }>) {
     function renderModelMappings() {
       var container = document.getElementById('modelMappingEditor');
       container.innerHTML = modelMappings.map(function(m, i) {
+        var options = '<option value="">-- Select model --</option>' +
+          CLAUDE_MODELS.map(function(cm) {
+            var selected = cm.id === m.key ? ' selected' : '';
+            return '<option value="' + escapeHtml(cm.id) + '"' + selected + '>' + escapeHtml(cm.label) + '</option>';
+          }).join('');
         return '<div class="kv-row">' +
-          '<input type="text" placeholder="Source model" value="' + escapeHtml(m.key) + '" onchange="modelMappings[' + i + '].key=this.value">' +
+          '<select onchange="modelMappings[' + i + '].key=this.value">' + options + '</select>' +
           '<input type="text" placeholder="Target model" value="' + escapeHtml(m.value) + '" onchange="modelMappings[' + i + '].value=this.value">' +
           '<button class="kv-remove" onclick="modelMappings.splice(' + i + ',1);renderModelMappings()">&times;</button>' +
         '</div>';
@@ -670,14 +672,13 @@ export async function adminPage(c: Context<{ Bindings: Bindings }>) {
       var name = document.getElementById('providerName').value.trim();
       var baseUrl = document.getElementById('providerBaseUrl').value.trim();
       var apiKey = document.getElementById('providerApiKey').value.trim();
-      var authHeader = document.getElementById('providerAuthHeader').value.trim() || 'x-api-key';
 
       if (!name || !baseUrl || !apiKey) {
         showStatus('Name, Base URL, and API Key are required', true);
         return null;
       }
 
-      var provider = { name: name, baseUrl: baseUrl, apiKey: apiKey, authHeader: authHeader };
+      var provider = { name: name, baseUrl: baseUrl, apiKey: apiKey };
 
       var mapping = {};
       var hasMapping = false;

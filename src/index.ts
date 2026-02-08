@@ -222,7 +222,6 @@ app.post("/v1/messages", async (c) => {
       },
     },
     502,
-    1
   );
 });
 

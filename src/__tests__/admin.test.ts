@@ -252,6 +252,48 @@ describe('adminPage', () => {
     expect(html).toContain('providerModal');
     expect(html).toContain('Test Connection');
   });
+
+  it('does not include authHeader input in provider modal', async () => {
+    const env = createMockBindings({ adminToken: 'test-token' });
+    const request = createRequest('/admin', { token: 'test-token' });
+
+    const response = await app.fetch(request, env);
+    const html = await response.text();
+
+    expect(html).not.toContain('providerAuthHeader');
+    expect(html).not.toContain('Auth Header');
+  });
+
+  it('uses select dropdown for model mapping source models', async () => {
+    const env = createMockBindings({ adminToken: 'test-token' });
+    const request = createRequest('/admin', { token: 'test-token' });
+
+    const response = await app.fetch(request, env);
+    const html = await response.text();
+
+    // Should define CLAUDE_MODELS array in JS
+    expect(html).toContain('CLAUDE_MODELS');
+    expect(html).toContain('claude-sonnet-4-20250514');
+    expect(html).toContain('claude-opus-4-20250514');
+    expect(html).toContain('claude-3-5-haiku-20241022');
+    // renderModelMappings should use <select> not <input> for source
+    expect(html).toContain('<select');
+    expect(html).toContain('Select model');
+  });
+
+  it('does not show Auth: in provider card meta', async () => {
+    const env = createMockBindings({
+      adminToken: 'test-token',
+      kvData: { providers: JSON.stringify([validProvider]) },
+    });
+    const request = createRequest('/admin', { token: 'test-token' });
+
+    const response = await app.fetch(request, env);
+    const html = await response.text();
+
+    // The card meta should not show Auth: prefix
+    expect(html).not.toContain("'Auth: '");
+  });
 });
 
 describe('getConfig', () => {
