@@ -1,0 +1,15 @@
+# .codecov.yml - 宽松版本
+coverage:
+  status:
+    project:
+      default:
+        target: auto        # 自动目标（不会因覆盖率下降而失败）
+        threshold: 5%       # 允许覆盖率下降 5%
+    patch:
+      default:
+        target: 70%         # 新代码至少 70% 覆盖率
+
+comment:
+  layout: "reach,diff,flags,tree"
+  behavior: default
+  require_changes: false
