@@ -5,7 +5,7 @@ export default defineWorkersConfig({
     globals: true,
     coverage: {
       provider: 'istanbul',
-      reporter: ['text', 'json', 'html', 'lcov'],
+      reporter: ['text', 'json', 'json-summary', 'html', 'lcov'],
       include: ['src/**/*.ts'],
       exclude: [
         'src/**/*.test.ts',
