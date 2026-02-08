@@ -121,7 +121,6 @@ npm run test:watch        # Watch mode
 npm run test:coverage     # Coverage report
 ```
 
-Current test coverage: **99%+** (142 tests)
 
 ### Deployment
 ```bash
