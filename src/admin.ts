@@ -286,17 +286,38 @@ export async function adminPage(c: Context<{ Bindings: Bindings }>) {
       padding: 4px 0;
     }
     .kv-add:hover { text-decoration: underline; }
-    /* Test result */
-    .test-result {
-      display: none;
-      margin-top: 8px;
+    /* Test results */
+    .test-results-container { margin-top: 8px; }
+    .test-results-container.loading {
       padding: 8px 12px;
+      background: #fff3cd;
+      color: #856404;
       border-radius: 6px;
       font-size: 13px;
     }
-    .test-result.success { display: block; background: #d4edda; color: #155724; }
-    .test-result.error { display: block; background: #f8d7da; color: #721c24; }
-    .test-result.loading { display: block; background: #fff3cd; color: #856404; }
+    .test-model-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 10px;
+      border-radius: 4px;
+      font-size: 13px;
+      margin-bottom: 4px;
+    }
+    .test-model-row.success { background: #d4edda; color: #155724; }
+    .test-model-row.error { background: #f8d7da; color: #721c24; }
+    .test-model-icon { font-size: 14px; flex-shrink: 0; }
+    .test-model-name { font-weight: 600; }
+    .test-model-detail { font-size: 12px; opacity: 0.8; margin-left: auto; }
+    .test-suggestion {
+      margin-top: 8px;
+      padding: 8px 12px;
+      background: #fff3cd;
+      color: #856404;
+      border-radius: 6px;
+      font-size: 12px;
+    }
+    .test-suggestion a { color: #856404; font-weight: 600; cursor: pointer; text-decoration: underline; }
     /* Password toggle */
     .password-wrapper {
       position: relative;
@@ -432,7 +453,7 @@ export async function adminPage(c: Context<{ Bindings: Bindings }>) {
           <div class="kv-editor" id="customHeadersEditor"></div>
           <button class="kv-add" onclick="addCustomHeader()">+ Add header</button>
         </div>
-        <div id="testResult" class="test-result"></div>
+        <div id="testResult"></div>
       </div>
       <div class="modal-footer">
         <div class="modal-footer-left">
@@ -452,6 +473,7 @@ export async function adminPage(c: Context<{ Bindings: Bindings }>) {
     var CLAUDE_MODELS = [
       { id: 'claude-sonnet-4-20250514', label: 'Claude Sonnet 4' },
       { id: 'claude-opus-4-20250514', label: 'Claude Opus 4' },
+      { id: 'claude-opus-4-6-20250415', label: 'Claude Opus 4.6' },
       { id: 'claude-3-5-haiku-20241022', label: 'Claude 3.5 Haiku' },
       { id: 'claude-3-5-sonnet-20241022', label: 'Claude 3.5 Sonnet (v2)' },
       { id: 'claude-3-opus-20240229', label: 'Claude 3 Opus' },
@@ -647,8 +669,7 @@ export async function adminPage(c: Context<{ Bindings: Bindings }>) {
     function openProviderModal(editIndex) {
       var modal = document.getElementById('providerModal');
       var title = document.getElementById('providerModalTitle');
-      document.getElementById('testResult').className = 'test-result';
-      document.getElementById('testResult').textContent = '';
+      document.getElementById('testResult').innerHTML = '';
 
       if (editIndex !== undefined && editIndex >= 0) {
         title.textContent = 'Edit Provider';
@@ -782,14 +803,15 @@ export async function adminPage(c: Context<{ Bindings: Bindings }>) {
       closeProviderModal();
     }
 
+    var lastTestResults = [];
+
     async function testConnection() {
       var provider = getProviderFromForm();
       if (!provider) return;
 
-      var resultEl = document.getElementById('testResult');
+      var container = document.getElementById('testResult');
       var btn = document.getElementById('testConnectionBtn');
-      resultEl.className = 'test-result loading';
-      resultEl.textContent = 'Testing connection...';
+      container.innerHTML = '<div class="test-results-container loading">Testing models...</div>';
       btn.disabled = true;
 
       try {
@@ -799,19 +821,61 @@ export async function adminPage(c: Context<{ Bindings: Bindings }>) {
           body: JSON.stringify(provider)
         });
         var data = await res.json();
-        if (data.success) {
-          resultEl.className = 'test-result success';
-          resultEl.textContent = data.message || 'Connection successful!';
-        } else {
-          resultEl.className = 'test-result error';
-          resultEl.textContent = data.error || 'Connection failed';
+
+        if (data.results) {
+          lastTestResults = data.results;
+          var html = '<div class="test-results-container">';
+          data.results.forEach(function(r) {
+            var icon = r.success ? '&#10003;' : '&#10007;';
+            var cls = r.success ? 'success' : 'error';
+            var detail = r.success
+              ? (r.mappedTo ? 'mapped to ' + escapeHtml(r.mappedTo) : 'OK')
+              : escapeHtml(r.error || 'Failed');
+            html += '<div class="test-model-row ' + cls + '">' +
+              '<span class="test-model-icon">' + icon + '</span>' +
+              '<span class="test-model-name">' + escapeHtml(r.label) + '</span>' +
+              '<span class="test-model-detail">' + detail + '</span>' +
+            '</div>';
+          });
+
+          if (data.suggestion) {
+            html += '<div class="test-suggestion">' +
+              escapeHtml(data.suggestion) +
+              ' <a onclick="suggestMappings()">Add mappings</a>' +
+            '</div>';
+          }
+
+          html += '</div>';
+          container.innerHTML = html;
+        } else if (data.error) {
+          container.innerHTML = '<div class="test-results-container">' +
+            '<div class="test-model-row error">' +
+              '<span class="test-model-icon">&#10007;</span>' +
+              '<span>' + escapeHtml(data.error) + '</span>' +
+            '</div></div>';
         }
       } catch (e) {
-        resultEl.className = 'test-result error';
-        resultEl.textContent = 'Error: ' + e.message;
+        container.innerHTML = '<div class="test-results-container">' +
+          '<div class="test-model-row error">' +
+            '<span class="test-model-icon">&#10007;</span>' +
+            '<span>Error: ' + escapeHtml(e.message) + '</span>' +
+          '</div></div>';
       } finally {
         btn.disabled = false;
       }
+    }
+
+    function suggestMappings() {
+      lastTestResults.forEach(function(r) {
+        if (r.success || r.hasMappingConfigured) return;
+        var alreadyMapped = modelMappings.some(function(m) { return m.key === r.model; });
+        if (!alreadyMapped) {
+          modelMappings.push({ key: r.model, value: '' });
+        }
+      });
+      renderModelMappings();
+      var editor = document.getElementById('modelMappingEditor');
+      if (editor) editor.scrollIntoView({ behavior: 'smooth', block: 'center' });
     }
 
     async function persistProviders() {
@@ -1150,8 +1214,125 @@ export async function getSettings(c: Context<{ Bindings: Bindings }>) {
   return c.json({ cooldownDuration: cooldown });
 }
 
+const TEST_MODELS = [
+  { id: "claude-sonnet-4-20250514", label: "Claude Sonnet 4" },
+  { id: "claude-opus-4-20250514", label: "Claude Opus 4" },
+  { id: "claude-opus-4-6-20250415", label: "Claude Opus 4.6" },
+  { id: "claude-3-5-haiku-20241022", label: "Claude 3.5 Haiku" },
+];
+
+interface ModelTestResult {
+  model: string;
+  label: string;
+  success: boolean;
+  message?: string;
+  error?: string;
+  mappedTo?: string;
+  hasMappingConfigured: boolean;
+}
+
+async function testSingleModel(
+  provider: ProviderConfig,
+  modelId: string,
+  modelLabel: string,
+): Promise<ModelTestResult> {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 10000);
+
+  const hasMappingConfigured = !!(
+    provider.modelMapping && provider.modelMapping[modelId]
+  );
+  const mappedModel = hasMappingConfigured
+    ? provider.modelMapping![modelId]
+    : modelId;
+
+  try {
+    const headerName = provider.authHeader || "x-api-key";
+    const headers: Record<string, string> = {
+      "content-type": "application/json",
+    };
+
+    if (headerName === "Authorization") {
+      headers["Authorization"] = provider.apiKey.startsWith("Bearer ")
+        ? provider.apiKey
+        : `Bearer ${provider.apiKey}`;
+    } else {
+      headers[headerName] = provider.apiKey;
+    }
+
+    if (provider.headers) {
+      Object.assign(headers, provider.headers);
+    }
+
+    let testBody: any = {
+      model: mappedModel,
+      max_tokens: 1,
+      messages: [{ role: "user", content: "Hi" }],
+    };
+
+    if (provider.format === "openai") {
+      testBody = convertAnthropicToOpenAI(testBody);
+    }
+
+    const response = await fetch(provider.baseUrl, {
+      method: "POST",
+      headers,
+      body: JSON.stringify(testBody),
+      signal: controller.signal,
+    });
+
+    clearTimeout(timeoutId);
+
+    if (response.ok) {
+      return {
+        model: modelId,
+        label: modelLabel,
+        success: true,
+        message: `HTTP ${response.status}`,
+        mappedTo: hasMappingConfigured ? mappedModel : undefined,
+        hasMappingConfigured,
+      };
+    }
+
+    const errorText = await response.text();
+    let errorMessage = `HTTP ${response.status}`;
+    try {
+      const errorJson = JSON.parse(errorText);
+      errorMessage =
+        errorJson.error?.message || errorJson.message || errorMessage;
+    } catch {
+      if (errorText.length < 200) {
+        errorMessage = errorText || errorMessage;
+      }
+    }
+
+    return {
+      model: modelId,
+      label: modelLabel,
+      success: false,
+      error: errorMessage,
+      mappedTo: hasMappingConfigured ? mappedModel : undefined,
+      hasMappingConfigured,
+    };
+  } catch (error: any) {
+    clearTimeout(timeoutId);
+    return {
+      model: modelId,
+      label: modelLabel,
+      success: false,
+      error:
+        error.name === "AbortError"
+          ? "Connection timed out (10s)"
+          : error.message,
+      mappedTo: hasMappingConfigured ? mappedModel : undefined,
+      hasMappingConfigured,
+    };
+  }
+}
+
 /**
  * POST /admin/test-provider - Test connection to a provider
+ * Tests multiple Claude models in parallel and returns per-model results.
  */
 export async function testProvider(c: Context<{ Bindings: Bindings }>) {
   try {
@@ -1164,83 +1345,29 @@ export async function testProvider(c: Context<{ Bindings: Bindings }>) {
       );
     }
 
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 10000);
+    const results = await Promise.all(
+      TEST_MODELS.map((m) => testSingleModel(provider, m.id, m.label)),
+    );
 
-    try {
-      const headerName = provider.authHeader || "x-api-key";
-      const headers: Record<string, string> = {
-        "content-type": "application/json",
-      };
+    const allSuccess = results.every((r) => r.success);
 
-      if (headerName === "Authorization") {
-        headers["Authorization"] = provider.apiKey.startsWith("Bearer ")
-          ? provider.apiKey
-          : `Bearer ${provider.apiKey}`;
-      } else {
-        headers[headerName] = provider.apiKey;
-      }
+    const failedWithoutMapping = results.filter(
+      (r) => !r.success && !r.hasMappingConfigured,
+    );
 
-      if (provider.headers) {
-        Object.assign(headers, provider.headers);
-      }
-
-      // Send a minimal messages request to verify connectivity and auth
-      let testBody: any = {
-        model: "claude-sonnet-4-20250514",
-        max_tokens: 1,
-        messages: [{ role: "user", content: "Hi" }],
-      };
-
-      // Apply model mapping if present
-      if (provider.modelMapping && provider.modelMapping[testBody.model]) {
-        testBody.model = provider.modelMapping[testBody.model];
-      }
-
-      // Convert to OpenAI format if provider uses it
-      if (provider.format === "openai") {
-        testBody = convertAnthropicToOpenAI(testBody);
-      }
-
-      const response = await fetch(provider.baseUrl, {
-        method: "POST",
-        headers,
-        body: JSON.stringify(testBody),
-        signal: controller.signal,
-      });
-
-      clearTimeout(timeoutId);
-
-      if (response.ok || response.status === 200 || response.status === 201) {
-        return c.json({
-          success: true,
-          message: `Connection successful (HTTP ${response.status})`,
-        });
-      }
-
-      const errorText = await response.text();
-      let errorMessage = `HTTP ${response.status}`;
-      try {
-        const errorJson = JSON.parse(errorText);
-        errorMessage =
-          errorJson.error?.message || errorJson.message || errorMessage;
-      } catch {
-        if (errorText.length < 200) {
-          errorMessage = errorText || errorMessage;
-        }
-      }
-
-      return c.json({ success: false, error: errorMessage });
-    } catch (error: any) {
-      clearTimeout(timeoutId);
-      if (error.name === "AbortError") {
-        return c.json({
-          success: false,
-          error: "Connection timed out (10s)",
-        });
-      }
-      return c.json({ success: false, error: error.message });
+    let suggestion: string | undefined;
+    if (failedWithoutMapping.length > 0) {
+      const modelNames = failedWithoutMapping
+        .map((r) => r.label)
+        .join(", ");
+      suggestion = `Consider adding model mappings for: ${modelNames}. Your provider may use different model names.`;
     }
+
+    return c.json({
+      success: allSuccess,
+      results,
+      suggestion,
+    });
   } catch (e: any) {
     return c.json({ success: false, error: e.message }, 400);
   }
