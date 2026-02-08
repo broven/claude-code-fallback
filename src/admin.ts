@@ -146,6 +146,37 @@ export async function adminPage(c: Context<{ Bindings: Bindings }>) {
     .status.success { background: #d4edda; color: #155724; display: block; }
     .status.error { background: #f8d7da; color: #721c24; display: block; }
     .empty-state { text-align: center; padding: 30px; color: #888; font-size: 14px; }
+    /* Drag and drop */
+    .drag-handle {
+      cursor: grab;
+      padding: 4px 8px;
+      color: #bbb;
+      font-size: 18px;
+      user-select: none;
+      -webkit-user-select: none;
+      display: flex;
+      align-items: center;
+      flex-shrink: 0;
+    }
+    .drag-handle:hover { color: #666; }
+    .drag-handle:active { cursor: grabbing; }
+    .priority-badge {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 22px;
+      height: 22px;
+      border-radius: 50%;
+      background: #4a90d9;
+      color: white;
+      font-size: 11px;
+      font-weight: 600;
+      flex-shrink: 0;
+      margin-right: 8px;
+    }
+    .provider-card { transition: opacity 0.15s ease, box-shadow 0.15s ease; }
+    .provider-card.dragging { opacity: 0.4; box-shadow: 0 0 0 2px #4a90d9; }
+    .provider-card.drag-over { box-shadow: 0 -3px 0 0 #4a90d9, 0 1px 3px rgba(0,0,0,0.08); }
     .code-block {
       background: #f8f8f8;
       padding: 12px;
@@ -558,20 +589,38 @@ export async function adminPage(c: Context<{ Bindings: Bindings }>) {
       }
       container.innerHTML = providers.map(function(p, i) {
         var mappingCount = p.modelMapping ? Object.keys(p.modelMapping).length : 0;
-        return '<div class="card provider-card">' +
+        return '<div class="card provider-card" data-index="' + i + '" draggable="true"' +
+          ' ondragstart="onDragStart(event,' + i + ')"' +
+          ' ondragover="onDragOver(event)"' +
+          ' ondragenter="onDragEnter(event)"' +
+          ' ondragleave="onDragLeave(event)"' +
+          ' ondrop="onDrop(event,' + i + ')"' +
+          ' ondragend="onDragEnd(event)"' +
+          ' ontouchstart="onTouchStart(event,' + i + ')">' +
           '<div class="card-header">' +
-            '<div>' +
-              '<div class="card-title">' + escapeHtml(p.name) + '</div>' +
+            '<div class="drag-handle" aria-label="Drag to reorder">&#9776;</div>' +
+            '<div style="flex:1;min-width:0;">' +
+              '<div style="display:flex;align-items:center;">' +
+                '<span class="priority-badge">' + (i + 1) + '</span>' +
+                '<span class="card-title">' + escapeHtml(p.name) + '</span>' +
+              '</div>' +
               '<div class="card-subtitle">' + escapeHtml(p.baseUrl) + '</div>' +
               (mappingCount > 0 ? '<div class="card-meta">Mappings: ' + mappingCount + '</div>' : '') +
             '</div>' +
             '<div class="card-actions">' +
+              '<button class="btn btn-outline btn-sm" onclick="moveProviderUp(' + i + ')"' + (i === 0 ? ' disabled' : '') + ' title="Move up" aria-label="Move up">&#9650;</button>' +
+              '<button class="btn btn-outline btn-sm" onclick="moveProviderDown(' + i + ')"' + (i === providers.length - 1 ? ' disabled' : '') + ' title="Move down" aria-label="Move down">&#9660;</button>' +
               '<button class="btn btn-outline btn-sm" onclick="openProviderModal(' + i + ')">Edit</button>' +
               '<button class="btn btn-danger btn-sm" onclick="deleteProvider(' + i + ')">Delete</button>' +
             '</div>' +
           '</div>' +
         '</div>';
       }).join('');
+      // Sync JSON editor if open
+      var jsonSection = document.getElementById('jsonEditorSection');
+      if (jsonSection && jsonSection.classList.contains('open')) {
+        document.getElementById('jsonEditor').value = JSON.stringify(providers, null, 2);
+      }
     }
 
     function deleteProvider(index) {
@@ -766,6 +815,153 @@ export async function adminPage(c: Context<{ Bindings: Bindings }>) {
       } catch (e) {
         showStatus('Error: ' + e.message, true);
       }
+    }
+
+    // ---- Provider Drag & Drop ----
+    var dragSourceIndex = -1;
+
+    function reorderProvider(fromIndex, toIndex) {
+      if (fromIndex === toIndex) return;
+      if (fromIndex < 0 || fromIndex >= providers.length) return;
+      if (toIndex < 0 || toIndex >= providers.length) return;
+      var item = providers.splice(fromIndex, 1)[0];
+      providers.splice(toIndex, 0, item);
+      renderProviders();
+      persistProviders();
+    }
+
+    function moveProviderUp(index) {
+      if (index <= 0) return;
+      reorderProvider(index, index - 1);
+    }
+
+    function moveProviderDown(index) {
+      if (index >= providers.length - 1) return;
+      reorderProvider(index, index + 1);
+    }
+
+    function onDragStart(event, index) {
+      dragSourceIndex = index;
+      event.dataTransfer.effectAllowed = 'move';
+      event.dataTransfer.setData('text/plain', String(index));
+      setTimeout(function() {
+        var cards = document.querySelectorAll('.provider-card');
+        if (cards[index]) cards[index].classList.add('dragging');
+      }, 0);
+    }
+
+    function onDragOver(event) {
+      event.preventDefault();
+      event.dataTransfer.dropEffect = 'move';
+    }
+
+    function onDragEnter(event) {
+      event.preventDefault();
+      var card = event.target.closest('.provider-card');
+      if (card && parseInt(card.getAttribute('data-index'), 10) !== dragSourceIndex) {
+        card.classList.add('drag-over');
+      }
+    }
+
+    function onDragLeave(event) {
+      var card = event.target.closest('.provider-card');
+      if (card) {
+        var related = event.relatedTarget;
+        if (!card.contains(related)) {
+          card.classList.remove('drag-over');
+        }
+      }
+    }
+
+    function onDrop(event, targetIndex) {
+      event.preventDefault();
+      var card = event.target.closest('.provider-card');
+      if (card) card.classList.remove('drag-over');
+      if (dragSourceIndex === targetIndex || dragSourceIndex < 0) return;
+      reorderProvider(dragSourceIndex, targetIndex);
+    }
+
+    function onDragEnd() {
+      dragSourceIndex = -1;
+      var cards = document.querySelectorAll('.provider-card');
+      for (var i = 0; i < cards.length; i++) {
+        cards[i].classList.remove('dragging');
+        cards[i].classList.remove('drag-over');
+      }
+    }
+
+    // Touch drag support
+    var touchDragState = null;
+
+    function onTouchStart(event, index) {
+      var handle = event.target.closest('.drag-handle');
+      if (!handle) return;
+      var touch = event.touches[0];
+      var card = event.target.closest('.provider-card');
+      if (!card) return;
+      event.preventDefault();
+
+      var rect = card.getBoundingClientRect();
+      var clone = card.cloneNode(true);
+      clone.style.position = 'fixed';
+      clone.style.width = rect.width + 'px';
+      clone.style.top = rect.top + 'px';
+      clone.style.left = rect.left + 'px';
+      clone.style.zIndex = '1000';
+      clone.style.opacity = '0.8';
+      clone.style.pointerEvents = 'none';
+      clone.style.boxShadow = '0 8px 24px rgba(0,0,0,0.2)';
+      document.body.appendChild(clone);
+      card.style.opacity = '0.3';
+
+      touchDragState = {
+        index: index,
+        element: card,
+        clone: clone,
+        offsetY: touch.clientY - rect.top
+      };
+      document.addEventListener('touchmove', onTouchMove, { passive: false });
+      document.addEventListener('touchend', onTouchEnd);
+      document.addEventListener('touchcancel', onTouchEnd);
+    }
+
+    var touchOverIndex = -1;
+
+    function onTouchMove(event) {
+      if (!touchDragState) return;
+      event.preventDefault();
+      var touch = event.touches[0];
+      touchDragState.clone.style.top = (touch.clientY - touchDragState.offsetY) + 'px';
+      var cards = document.querySelectorAll('.provider-card');
+      touchOverIndex = -1;
+      for (var i = 0; i < cards.length; i++) {
+        cards[i].classList.remove('drag-over');
+        var rect = cards[i].getBoundingClientRect();
+        if (touch.clientY > rect.top && touch.clientY < rect.bottom && i !== touchDragState.index) {
+          cards[i].classList.add('drag-over');
+          touchOverIndex = i;
+        }
+      }
+    }
+
+    function onTouchEnd() {
+      if (!touchDragState) return;
+      document.removeEventListener('touchmove', onTouchMove);
+      document.removeEventListener('touchend', onTouchEnd);
+      document.removeEventListener('touchcancel', onTouchEnd);
+      if (touchDragState.clone.parentNode) {
+        touchDragState.clone.parentNode.removeChild(touchDragState.clone);
+      }
+      touchDragState.element.style.opacity = '';
+      var cards = document.querySelectorAll('.provider-card');
+      for (var i = 0; i < cards.length; i++) {
+        cards[i].classList.remove('drag-over');
+      }
+      if (touchOverIndex >= 0 && touchOverIndex !== touchDragState.index) {
+        reorderProvider(touchDragState.index, touchOverIndex);
+      }
+      touchDragState = null;
+      touchOverIndex = -1;
     }
 
     // ---- Settings ----

@@ -294,6 +294,50 @@ describe('adminPage', () => {
     // The card meta should not show Auth: prefix
     expect(html).not.toContain("'Auth: '");
   });
+
+  it('includes drag-and-drop support on provider cards', async () => {
+    const env = createMockBindings({
+      adminToken: 'test-token',
+      kvData: { providers: JSON.stringify([validProvider]) },
+    });
+    const request = createRequest('/admin', { token: 'test-token' });
+
+    const response = await app.fetch(request, env);
+    const html = await response.text();
+
+    expect(html).toContain('draggable="true"');
+    expect(html).toContain('onDragStart');
+    expect(html).toContain('onDrop');
+    expect(html).toContain('drag-handle');
+    expect(html).toContain('priority-badge');
+  });
+
+  it('includes move up/down buttons for provider reordering', async () => {
+    const env = createMockBindings({
+      adminToken: 'test-token',
+      kvData: { providers: JSON.stringify(multipleProviders) },
+    });
+    const request = createRequest('/admin', { token: 'test-token' });
+
+    const response = await app.fetch(request, env);
+    const html = await response.text();
+
+    expect(html).toContain('moveProviderUp');
+    expect(html).toContain('moveProviderDown');
+    expect(html).toContain('reorderProvider');
+  });
+
+  it('includes touch drag support', async () => {
+    const env = createMockBindings({ adminToken: 'test-token' });
+    const request = createRequest('/admin', { token: 'test-token' });
+
+    const response = await app.fetch(request, env);
+    const html = await response.text();
+
+    expect(html).toContain('onTouchStart');
+    expect(html).toContain('onTouchMove');
+    expect(html).toContain('onTouchEnd');
+  });
 });
 
 describe('getConfig', () => {
