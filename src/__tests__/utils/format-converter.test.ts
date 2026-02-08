@@ -53,6 +53,15 @@ describe('convertAnthropicToOpenAI', () => {
       expect(result.messages[2]).toEqual({ role: 'user', content: 'How are you?' });
     });
 
+    it('handles non-string non-array content gracefully', () => {
+      const result = convertAnthropicToOpenAI({
+        model: 'test',
+        messages: [{ role: 'user', content: 12345 }],
+      });
+
+      expect(result.messages[0].content).toBe('');
+    });
+
     it('handles empty messages array', () => {
       const result = convertAnthropicToOpenAI({
         model: 'test',
@@ -672,6 +681,90 @@ describe('convertOpenAIStreamToAnthropic', () => {
 
     const msgDelta = events.find(e => e.event === 'message_delta');
     expect(msgDelta?.data.delta.stop_reason).toBe('tool_use');
+  });
+
+  it('closes text block before emitting tool calls when interleaved', async () => {
+    const chunks = [
+      'data: {"choices":[{"delta":{"content":"Let me check"},"index":0}]}\n\n',
+      'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_1","type":"function","function":{"name":"search","arguments":"{\\"q\\":\\"test\\"}"}}]},"index":0,"finish_reason":"tool_calls"}]}\n\n',
+      'data: [DONE]\n\n',
+    ];
+
+    const input = createStream(chunks);
+    const output = convertOpenAIStreamToAnthropic(input, 'test-model');
+    const raw = await readStream(output);
+    const events = parseSSEEvents(raw);
+
+    // Should have: message_start, text content_block_start, text delta, text content_block_stop,
+    // then tool_use content_block_start, input_json_delta, tool content_block_stop, message_delta, message_stop
+    const blockStarts = events.filter(e => e.event === 'content_block_start');
+    expect(blockStarts).toHaveLength(2);
+    expect(blockStarts[0].data.content_block.type).toBe('text');
+    expect(blockStarts[1].data.content_block.type).toBe('tool_use');
+
+    const blockStops = events.filter(e => e.event === 'content_block_stop');
+    expect(blockStops).toHaveLength(2);
+
+    // Text block should be closed (index 0) before tool block starts (index 1)
+    expect(blockStops[0].data.index).toBe(0);
+    expect(blockStarts[1].data.index).toBe(1);
+  });
+
+  it('skips invalid JSON in stream data', async () => {
+    const chunks = [
+      'data: {"choices":[{"delta":{"content":"Hi"},"index":0}]}\n\n',
+      'data: {invalid json}\n\n',
+      'data: {"choices":[{"delta":{"content":"!"},"index":0,"finish_reason":"stop"}]}\n\n',
+      'data: [DONE]\n\n',
+    ];
+
+    const input = createStream(chunks);
+    const output = convertOpenAIStreamToAnthropic(input, 'test-model');
+    const raw = await readStream(output);
+    const events = parseSSEEvents(raw);
+
+    // Should skip the invalid JSON and still produce valid output
+    const deltas = events.filter(e => e.event === 'content_block_delta');
+    expect(deltas).toHaveLength(2);
+    expect(deltas[0].data.delta.text).toBe('Hi');
+    expect(deltas[1].data.delta.text).toBe('!');
+  });
+
+  it('captures usage from a regular chunk with choices', async () => {
+    const chunks = [
+      'data: {"choices":[{"delta":{"content":"Hi"},"index":0,"finish_reason":"stop"}],"usage":{"prompt_tokens":8,"completion_tokens":3}}\n\n',
+      'data: [DONE]\n\n',
+    ];
+
+    const input = createStream(chunks);
+    const output = convertOpenAIStreamToAnthropic(input, 'test-model');
+    const raw = await readStream(output);
+    const events = parseSSEEvents(raw);
+
+    const msgDelta = events.find(e => e.event === 'message_delta');
+    expect(msgDelta?.data.usage.output_tokens).toBe(3);
+  });
+
+  it('handles flush with remaining buffer data', async () => {
+    // Stream that ends without a trailing newline, leaving data in the buffer
+    const encoder = new TextEncoder();
+    const stream = new ReadableStream({
+      start(controller) {
+        controller.enqueue(encoder.encode('data: {"choices":[{"delta":{"content":"Hi"},"index":0,"finish_reason":"stop"}]}\n\ndata: [DONE]'));
+        controller.close();
+      },
+    });
+
+    const output = convertOpenAIStreamToAnthropic(stream, 'test-model');
+    const raw = await readStream(output);
+    const events = parseSSEEvents(raw);
+
+    expect(events.find(e => e.event === 'message_start')).toBeDefined();
+    expect(events.find(e => e.event === 'message_stop')).toBeDefined();
+
+    const deltas = events.filter(e => e.event === 'content_block_delta');
+    expect(deltas).toHaveLength(1);
+    expect(deltas[0].data.delta.text).toBe('Hi');
   });
 
   it('captures usage from stream', async () => {
