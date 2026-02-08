@@ -1,10 +1,11 @@
 import { Context, Next } from "hono";
-import { Bindings, ProviderConfig } from "./types";
+import { Bindings, ProviderConfig, TokenConfig } from "./types";
 import {
   getRawConfig,
   saveConfig,
   getRawTokens,
   saveTokens,
+  parseTokenConfigs,
   getRawCooldown,
   saveCooldown,
 } from "./config";
@@ -37,7 +38,7 @@ export async function authMiddleware(
 export async function adminPage(c: Context<{ Bindings: Bindings }>) {
   const token = c.req.query("token") || "";
   const config = await getRawConfig(c.env);
-  const allowedTokens = await getRawTokens(c.env);
+  const rawTokens = await getRawTokens(c.env);
   const cooldown = await getRawCooldown(c.env);
 
   // Construct the base URL for instructions
@@ -51,62 +52,62 @@ export async function adminPage(c: Context<{ Bindings: Bindings }>) {
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Claude Code Fallback - Admin</title>
   <style>
-    * { box-sizing: border-box; }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
       max-width: 900px;
       margin: 0 auto;
       padding: 20px;
       background: #f5f5f5;
+      color: #333;
     }
-    h1 { color: #333; margin-bottom: 10px; }
+    h1 { color: #333; margin-bottom: 4px; }
     .subtitle { color: #666; margin-bottom: 30px; }
-    .card {
-      background: white;
-      border-radius: 8px;
-      padding: 20px;
-      margin-bottom: 20px;
-      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-    }
-    .provider-card {
-      border-left: 4px solid #4a90d9;
-    }
-    .token-card {
-      border-left: 4px solid #2ecc71;
-    }
-    .provider-header {
+    .section { margin-bottom: 40px; }
+    .section-header {
       display: flex;
       justify-content: space-between;
       align-items: center;
-      margin-bottom: 10px;
+      margin-bottom: 16px;
+      padding-bottom: 8px;
+      border-bottom: 2px solid #e0e0e0;
     }
-    .provider-name {
-      font-weight: 600;
-      font-size: 18px;
-      color: #333;
+    .section-header h2 { font-size: 20px; color: #333; }
+    .card {
+      background: white;
+      border-radius: 8px;
+      padding: 16px 20px;
+      margin-bottom: 12px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.08);
     }
-    .provider-url {
-      color: #666;
-      font-size: 14px;
-      word-break: break-all;
+    .provider-card { border-left: 4px solid #4a90d9; }
+    .token-card { border-left: 4px solid #2ecc71; }
+    .card-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
     }
-    .provider-meta {
-      font-size: 12px;
-      color: #888;
-      margin-top: 8px;
-    }
+    .card-header-left { display: flex; align-items: center; gap: 12px; flex: 1; min-width: 0; }
+    .card-title { font-weight: 600; font-size: 16px; color: #333; }
+    .card-subtitle { color: #666; font-size: 13px; word-break: break-all; margin-top: 4px; }
+    .card-meta { font-size: 12px; color: #888; margin-top: 6px; }
+    .card-actions { display: flex; gap: 6px; flex-shrink: 0; }
     .btn {
       padding: 8px 16px;
       border: none;
-      border-radius: 4px;
+      border-radius: 6px;
       cursor: pointer;
-      font-size: 14px;
-      transition: opacity 0.2s;
+      font-size: 13px;
+      font-weight: 500;
+      transition: all 0.15s;
     }
-    .btn:hover { opacity: 0.8; }
+    .btn:hover { opacity: 0.85; }
+    .btn:disabled { opacity: 0.5; cursor: not-allowed; }
     .btn-primary { background: #4a90d9; color: white; }
+    .btn-success { background: #27ae60; color: white; }
     .btn-danger { background: #e74c3c; color: white; }
     .btn-secondary { background: #95a5a6; color: white; }
+    .btn-outline { background: white; color: #4a90d9; border: 1px solid #4a90d9; }
     .btn-sm { padding: 4px 10px; font-size: 12px; }
     textarea {
       width: 100%;
@@ -115,148 +116,306 @@ export async function adminPage(c: Context<{ Bindings: Bindings }>) {
       font-size: 13px;
       padding: 12px;
       border: 1px solid #ddd;
-      border-radius: 4px;
+      border-radius: 6px;
       resize: vertical;
     }
-    input[type="number"] {
+    input[type="text"], input[type="password"], input[type="number"] {
       width: 100%;
-      padding: 8px;
+      padding: 8px 12px;
       font-size: 14px;
       border: 1px solid #ddd;
-      border-radius: 4px;
+      border-radius: 6px;
+      transition: border-color 0.15s;
     }
-    .form-group {
-      margin-bottom: 15px;
-    }
-    .form-group label {
-      display: block;
-      margin-bottom: 5px;
-      font-weight: 600;
-    }
-    .help-text {
-      font-size: 12px;
-      color: #666;
-      margin-bottom: 5px;
-    }
-    .actions {
-      display: flex;
-      gap: 10px;
-      margin-top: 15px;
-    }
+    input:focus, textarea:focus { outline: none; border-color: #4a90d9; }
+    .form-group { margin-bottom: 16px; }
+    .form-group label { display: block; margin-bottom: 4px; font-weight: 600; font-size: 13px; }
+    .help-text { font-size: 12px; color: #888; margin-top: 2px; }
+    .actions { display: flex; gap: 10px; margin-top: 16px; }
     .status {
-      padding: 10px;
-      border-radius: 4px;
-      margin-bottom: 15px;
+      position: fixed;
+      top: 20px;
+      right: 20px;
+      padding: 12px 20px;
+      border-radius: 8px;
+      font-size: 14px;
+      z-index: 1000;
       display: none;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.15);
     }
     .status.success { background: #d4edda; color: #155724; display: block; }
     .status.error { background: #f8d7da; color: #721c24; display: block; }
-    .empty-state {
-      text-align: center;
-      padding: 40px;
-      color: #666;
-    }
-    .tabs {
-      display: flex;
-      gap: 10px;
-      margin-bottom: 20px;
-    }
-    .tab {
-      padding: 8px 16px;
-      background: #e0e0e0;
-      border-radius: 4px;
-      cursor: pointer;
-    }
-    .tab.active { background: #4a90d9; color: white; }
-    .view { display: none; }
-    .view.active { display: block; }
-    #providerList { min-height: 100px; }
+    .empty-state { text-align: center; padding: 30px; color: #888; font-size: 14px; }
     .code-block {
-      background: #f1f1f1;
-      padding: 10px;
-      border-radius: 4px;
-      font-family: monospace;
-      margin: 10px 0;
+      background: #f8f8f8;
+      padding: 12px;
+      border-radius: 6px;
+      font-family: 'Monaco', 'Menlo', monospace;
+      font-size: 13px;
+      margin: 8px 0;
       white-space: pre-wrap;
       word-break: break-all;
+      border: 1px solid #e8e8e8;
     }
-    .token-item {
+    /* Token expandable */
+    .token-expand-btn {
+      background: none;
+      border: none;
+      cursor: pointer;
+      font-size: 14px;
+      color: #666;
+      padding: 4px;
+      transition: transform 0.2s;
+    }
+    .token-expand-btn.expanded { transform: rotate(90deg); }
+    .token-details { display: none; margin-top: 12px; padding-top: 12px; border-top: 1px solid #eee; }
+    .token-details.expanded { display: block; }
+    .token-value { font-family: 'Monaco', 'Menlo', monospace; font-size: 13px; color: #333; }
+    .token-note { font-size: 12px; color: #888; margin-left: 8px; }
+    /* Collapsible section */
+    .collapsible-trigger {
+      cursor: pointer;
+      user-select: none;
+    }
+    .collapsible-trigger .arrow { transition: transform 0.2s; display: inline-block; }
+    .collapsible-trigger.open .arrow { transform: rotate(90deg); }
+    .collapsible-content { display: none; }
+    .collapsible-content.open { display: block; }
+    /* Modal */
+    .modal-overlay {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.5);
+      z-index: 100;
+      align-items: center;
+      justify-content: center;
+    }
+    .modal-overlay.active { display: flex; }
+    .modal {
+      background: white;
+      border-radius: 12px;
+      width: 90%;
+      max-width: 600px;
+      max-height: 90vh;
+      overflow-y: auto;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+    }
+    .modal-header {
+      padding: 20px 24px 16px;
+      border-bottom: 1px solid #eee;
       display: flex;
       justify-content: space-between;
       align-items: center;
-      padding: 10px;
-      border-bottom: 1px solid #eee;
     }
-    .token-item:last-child {
-      border-bottom: none;
+    .modal-header h3 { font-size: 18px; }
+    .modal-close {
+      background: none;
+      border: none;
+      font-size: 24px;
+      cursor: pointer;
+      color: #999;
+      padding: 0 4px;
     }
-    .token-value {
-      font-family: monospace;
-      font-weight: 600;
+    .modal-close:hover { color: #333; }
+    .modal-body { padding: 20px 24px; }
+    .modal-footer {
+      padding: 16px 24px 20px;
+      border-top: 1px solid #eee;
+      display: flex;
+      justify-content: space-between;
+      gap: 10px;
     }
+    .modal-footer-left { display: flex; gap: 10px; }
+    .modal-footer-right { display: flex; gap: 10px; }
+    /* KV pair editor */
+    .kv-editor { margin-top: 8px; }
+    .kv-row {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 6px;
+      align-items: center;
+    }
+    .kv-row input { flex: 1; padding: 6px 10px; font-size: 13px; }
+    .kv-remove {
+      background: none;
+      border: none;
+      color: #e74c3c;
+      cursor: pointer;
+      font-size: 18px;
+      padding: 0 4px;
+    }
+    .kv-add {
+      font-size: 12px;
+      color: #4a90d9;
+      cursor: pointer;
+      background: none;
+      border: none;
+      padding: 4px 0;
+    }
+    .kv-add:hover { text-decoration: underline; }
+    /* Test result */
+    .test-result {
+      display: none;
+      margin-top: 8px;
+      padding: 8px 12px;
+      border-radius: 6px;
+      font-size: 13px;
+    }
+    .test-result.success { display: block; background: #d4edda; color: #155724; }
+    .test-result.error { display: block; background: #f8d7da; color: #721c24; }
+    .test-result.loading { display: block; background: #fff3cd; color: #856404; }
+    /* Password toggle */
+    .password-wrapper {
+      position: relative;
+    }
+    .password-toggle {
+      position: absolute;
+      right: 8px;
+      top: 50%;
+      transform: translateY(-50%);
+      background: none;
+      border: none;
+      cursor: pointer;
+      color: #888;
+      font-size: 13px;
+    }
+    .password-wrapper input { padding-right: 60px; }
   </style>
 </head>
 <body>
   <h1>Claude Code Fallback Proxy</h1>
-  <p class="subtitle">Provider Configuration</p>
+  <p class="subtitle">Admin Panel</p>
 
   <div id="status" class="status"></div>
 
-  <div class="tabs">
-    <div class="tab active" onclick="switchView('visual')">Visual Editor</div>
-    <div class="tab" onclick="switchView('json')">JSON Editor</div>
-    <div class="tab" onclick="switchView('tokens')">Access Tokens</div>
-    <div class="tab" onclick="switchView('settings')">Settings</div>
+  <!-- Section: Access Tokens -->
+  <div class="section" id="tokens-section">
+    <div class="section-header">
+      <h2>Access Tokens</h2>
+      <button class="btn btn-primary btn-sm" onclick="showAddToken()">+ Add Token</button>
+    </div>
+    <div id="addTokenForm" style="display:none;" class="card">
+      <div class="form-group">
+        <label>Token</label>
+        <input type="text" id="newTokenValue" placeholder="sk-cc-...">
+        <div class="help-text">Leave empty to auto-generate</div>
+      </div>
+      <div class="form-group">
+        <label>Note (optional)</label>
+        <input type="text" id="newTokenNote" placeholder="e.g. dev-machine-john" pattern="^[a-zA-Z0-9 -]*$">
+        <div class="help-text">English letters, numbers, spaces, and hyphens only</div>
+      </div>
+      <div class="actions">
+        <button class="btn btn-primary btn-sm" onclick="confirmAddToken()">Save Token</button>
+        <button class="btn btn-secondary btn-sm" onclick="hideAddToken()">Cancel</button>
+      </div>
+    </div>
+    <div id="tokenList"></div>
   </div>
 
-  <div id="visual-view" class="view active">
+  <!-- Section: Providers -->
+  <div class="section" id="providers-section">
+    <div class="section-header">
+      <h2>Fallback Providers</h2>
+      <button class="btn btn-primary btn-sm" onclick="openProviderModal()">+ Add Provider</button>
+    </div>
     <div id="providerList"></div>
-    <button class="btn btn-primary" onclick="addProvider()">+ Add Provider</button>
   </div>
 
-  <div id="json-view" class="view">
-    <div class="card">
-      <textarea id="jsonEditor">${escapeHtml(config)}</textarea>
-      <div class="actions">
-        <button class="btn btn-primary" onclick="saveJson()">Save Configuration</button>
-        <button class="btn btn-secondary" onclick="formatJson()">Format JSON</button>
-      </div>
+  <!-- Section: Settings -->
+  <div class="section" id="settings-section">
+    <div class="section-header">
+      <h2>Settings</h2>
     </div>
-  </div>
-
-  <div id="tokens-view" class="view">
     <div class="card">
-      <h3>Configuration Instructions</h3>
-      <p>Configure Claude Code to use this proxy with your token:</p>
-      <div class="code-block">export ANTHROPIC_CUSTOM_HEADERS="x-ccf-api-key: [YOUR_TOKEN]"
-export ANTHROPIC_BASE_URL="${escapeHtml(workerBaseUrl)}"</div>
-
-      <h3 style="margin-top: 20px;">Allowed Tokens</h3>
-      <div id="tokenList"></div>
-      <div class="actions">
-        <button class="btn btn-primary" onclick="addToken()">+ Add Token</button>
-      </div>
-    </div>
-  </div>
-
-  <div id="settings-view" class="view">
-    <div class="card">
-      <h3>Global Settings</h3>
       <div class="form-group">
         <label>Circuit Breaker Cooldown (seconds)</label>
         <div class="help-text">How long to skip a provider after it fails (default: 300s / 5m).</div>
         <input type="number" id="cooldownInput" value="${cooldown}" min="0" step="1">
       </div>
       <div class="actions">
-        <button class="btn btn-primary" onclick="saveSettings()">Save Settings</button>
+        <button class="btn btn-primary btn-sm" onclick="saveSettings()">Save Settings</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Section: JSON Editor (collapsible) -->
+  <div class="section" id="json-section">
+    <div class="section-header collapsible-trigger" onclick="toggleJsonEditor()">
+      <h2><span class="arrow">&#9654;</span> JSON Editor</h2>
+    </div>
+    <div class="collapsible-content" id="jsonEditorSection">
+      <div class="card">
+        <textarea id="jsonEditor">${escapeHtml(config)}</textarea>
+        <div class="actions">
+          <button class="btn btn-primary btn-sm" onclick="saveJson()">Save Configuration</button>
+          <button class="btn btn-secondary btn-sm" onclick="formatJson()">Format JSON</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Provider Modal -->
+  <div class="modal-overlay" id="providerModal">
+    <div class="modal">
+      <div class="modal-header">
+        <h3 id="providerModalTitle">Add Provider</h3>
+        <button class="modal-close" onclick="closeProviderModal()">&times;</button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="providerEditIndex" value="-1">
+        <div class="form-group">
+          <label>Name *</label>
+          <input type="text" id="providerName" placeholder="e.g. openrouter">
+        </div>
+        <div class="form-group">
+          <label>Base URL *</label>
+          <input type="text" id="providerBaseUrl" placeholder="e.g. https://openrouter.ai/api/v1/chat/completions">
+        </div>
+        <div class="form-group">
+          <label>API Key *</label>
+          <div class="password-wrapper">
+            <input type="password" id="providerApiKey" placeholder="sk-...">
+            <button type="button" class="password-toggle" onclick="toggleApiKeyVisibility()">Show</button>
+          </div>
+        </div>
+        <div class="form-group">
+          <label>Auth Header</label>
+          <input type="text" id="providerAuthHeader" placeholder="x-api-key" value="x-api-key">
+          <div class="help-text">Use "Authorization" for Bearer token authentication.</div>
+        </div>
+        <div class="form-group">
+          <label>Model Mapping</label>
+          <div class="help-text">Map Anthropic model names to provider-specific names.</div>
+          <div class="kv-editor" id="modelMappingEditor"></div>
+          <button class="kv-add" onclick="addModelMapping()">+ Add mapping</button>
+        </div>
+        <div class="form-group">
+          <label>Custom Headers</label>
+          <div class="help-text">Additional headers to send with requests.</div>
+          <div class="kv-editor" id="customHeadersEditor"></div>
+          <button class="kv-add" onclick="addCustomHeader()">+ Add header</button>
+        </div>
+        <div id="testResult" class="test-result"></div>
+      </div>
+      <div class="modal-footer">
+        <div class="modal-footer-left">
+          <button class="btn btn-outline btn-sm" id="testConnectionBtn" onclick="testConnection()">Test Connection</button>
+        </div>
+        <div class="modal-footer-right">
+          <button class="btn btn-secondary btn-sm" onclick="closeProviderModal()">Cancel</button>
+          <button class="btn btn-primary btn-sm" onclick="saveProvider()">Save</button>
+        </div>
       </div>
     </div>
   </div>
 
   <script>
     const TOKEN = '${escapeHtml(token)}';
+    const WORKER_BASE_URL = '${escapeHtml(workerBaseUrl)}';
     let providers = [];
-    let allowedTokens = [];
+    let tokenConfigs = [];
 
     try {
       providers = JSON.parse(${JSON.stringify(config)});
@@ -265,9 +424,13 @@ export ANTHROPIC_BASE_URL="${escapeHtml(workerBaseUrl)}"</div>
     }
 
     try {
-      allowedTokens = JSON.parse(${JSON.stringify(allowedTokens)});
+      const rawTokens = JSON.parse(${JSON.stringify(rawTokens)});
+      tokenConfigs = rawTokens.map(function(t) {
+        if (typeof t === 'string') return { token: t, note: '' };
+        return { token: t.token || '', note: t.note || '' };
+      });
     } catch (e) {
-      allowedTokens = [];
+      tokenConfigs = [];
     }
 
     function escapeHtml(str) {
@@ -275,157 +438,104 @@ export ANTHROPIC_BASE_URL="${escapeHtml(workerBaseUrl)}"</div>
         .replace(/&/g, '&amp;')
         .replace(/</g, '&lt;')
         .replace(/>/g, '&gt;')
-        .replace(/"/g, '&quot;');
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
     }
 
-    function showStatus(message, isError = false) {
-      const el = document.getElementById('status');
+    function showStatus(message, isError) {
+      var el = document.getElementById('status');
       el.textContent = message;
       el.className = 'status ' + (isError ? 'error' : 'success');
-      setTimeout(() => { el.className = 'status'; }, 3000);
+      setTimeout(function() { el.className = 'status'; }, 3000);
     }
 
-    function switchView(view) {
-      document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
-      document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
-
-      let tabIndex = 1;
-      if (view === 'json') tabIndex = 2;
-      if (view === 'tokens') tabIndex = 3;
-      if (view === 'settings') tabIndex = 4;
-
-      document.querySelector('.tab:nth-child(' + tabIndex + ')').classList.add('active');
-      document.getElementById(view + '-view').classList.add('active');
-
-      if (view === 'json') {
-        document.getElementById('jsonEditor').value = JSON.stringify(providers, null, 2);
-      } else if (view === 'visual') {
-        try {
-          providers = JSON.parse(document.getElementById('jsonEditor').value);
-        } catch (e) {}
-        renderProviders();
-      } else if (view === 'tokens') {
-        renderTokens();
-      }
-    }
-
-    function renderProviders() {
-      const container = document.getElementById('providerList');
-      if (providers.length === 0) {
-        container.innerHTML = '<div class="empty-state">No providers configured. Add one to get started.</div>';
-        return;
-      }
-
-      container.innerHTML = providers.map((p, i) => \`
-        <div class="card provider-card">
-          <div class="provider-header">
-            <span class="provider-name">\${escapeHtml(p.name)}</span>
-            <div>
-              <button class="btn btn-secondary btn-sm" onclick="editProvider(\${i})">Edit</button>
-              <button class="btn btn-danger btn-sm" onclick="deleteProvider(\${i})">Delete</button>
-            </div>
-          </div>
-          <div class="provider-url">\${escapeHtml(p.baseUrl)}</div>
-          <div class="provider-meta">
-            Auth: \${escapeHtml(p.authHeader || 'x-api-key')}
-            \${p.modelMapping ? ' | Mappings: ' + Object.keys(p.modelMapping).length : ''}
-          </div>
-        </div>
-      \`).join('');
-    }
-
+    // ---- Tokens ----
     function renderTokens() {
-      const container = document.getElementById('tokenList');
-      if (allowedTokens.length === 0) {
-        container.innerHTML = '<div class="empty-state">No tokens configured. Anyone can access this proxy!</div>';
+      var container = document.getElementById('tokenList');
+      if (tokenConfigs.length === 0) {
+        container.innerHTML = '<div class="empty-state">No tokens configured. Anyone can access this proxy.</div>';
+        return;
+      }
+      container.innerHTML = tokenConfigs.map(function(tc, i) {
+        return '<div class="card token-card">' +
+          '<div class="card-header">' +
+            '<div class="card-header-left">' +
+              '<button class="token-expand-btn" onclick="toggleTokenDetails(' + i + ')" id="tokenExpandBtn' + i + '">&#9654;</button>' +
+              '<div>' +
+                '<span class="token-value">' + escapeHtml(tc.token) + '</span>' +
+                (tc.note ? '<span class="token-note">(' + escapeHtml(tc.note) + ')</span>' : '') +
+              '</div>' +
+            '</div>' +
+            '<div class="card-actions">' +
+              '<button class="btn btn-danger btn-sm" onclick="deleteToken(' + i + ')">Delete</button>' +
+            '</div>' +
+          '</div>' +
+          '<div class="token-details" id="tokenDetails' + i + '">' +
+            '<p style="font-size:13px;color:#555;margin-bottom:8px;">Configure Claude Code to use this proxy with this token:</p>' +
+            '<div class="code-block">export ANTHROPIC_CUSTOM_HEADERS="x-ccf-api-key: ' + escapeHtml(tc.token) + '"\\nexport ANTHROPIC_BASE_URL="' + escapeHtml(WORKER_BASE_URL) + '"</div>' +
+          '</div>' +
+        '</div>';
+      }).join('');
+    }
+
+    function toggleTokenDetails(index) {
+      var btn = document.getElementById('tokenExpandBtn' + index);
+      var details = document.getElementById('tokenDetails' + index);
+      var isExpanded = details.classList.contains('expanded');
+      if (isExpanded) {
+        details.classList.remove('expanded');
+        btn.classList.remove('expanded');
+      } else {
+        details.classList.add('expanded');
+        btn.classList.add('expanded');
+      }
+    }
+
+    function showAddToken() {
+      var form = document.getElementById('addTokenForm');
+      form.style.display = 'block';
+      var randomToken = 'sk-cc-' + Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
+      document.getElementById('newTokenValue').value = randomToken;
+      document.getElementById('newTokenNote').value = '';
+    }
+
+    function hideAddToken() {
+      document.getElementById('addTokenForm').style.display = 'none';
+    }
+
+    function confirmAddToken() {
+      var tokenVal = document.getElementById('newTokenValue').value.trim();
+      var noteVal = document.getElementById('newTokenNote').value.trim();
+
+      if (!tokenVal) {
+        tokenVal = 'sk-cc-' + Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
+      }
+
+      var notePattern = /^[a-zA-Z0-9 -]*$/;
+      if (noteVal && !notePattern.test(noteVal)) {
+        showStatus('Note must contain only English letters, numbers, spaces, and hyphens', true);
         return;
       }
 
-      container.innerHTML = allowedTokens.map((t, i) => \`
-        <div class="token-item">
-          <span class="token-value">\${escapeHtml(t)}</span>
-          <button class="btn btn-danger btn-sm" onclick="deleteToken(\${i})">Delete</button>
-        </div>
-      \`).join('');
-    }
-
-    function addProvider() {
-      const name = prompt('Provider name:');
-      if (!name) return;
-      const baseUrl = prompt('Base URL:');
-      if (!baseUrl) return;
-      const apiKey = prompt('API Key:');
-      if (!apiKey) return;
-      const authHeader = prompt('Auth header (default: x-api-key):', 'x-api-key');
-
-      providers.push({ name, baseUrl, apiKey, authHeader: authHeader || 'x-api-key' });
-      renderProviders();
-      saveProviders();
-    }
-
-    function editProvider(index) {
-      const p = providers[index];
-      const name = prompt('Provider name:', p.name);
-      if (!name) return;
-      const baseUrl = prompt('Base URL:', p.baseUrl);
-      if (!baseUrl) return;
-      const apiKey = prompt('API Key:', p.apiKey);
-      if (!apiKey) return;
-      const authHeader = prompt('Auth header:', p.authHeader || 'x-api-key');
-
-      providers[index] = { ...p, name, baseUrl, apiKey, authHeader: authHeader || 'x-api-key' };
-      renderProviders();
-      saveProviders();
-    }
-
-    function deleteProvider(index) {
-      if (!confirm('Delete this provider?')) return;
-      providers.splice(index, 1);
-      renderProviders();
-      saveProviders();
-    }
-
-    function addToken() {
-      // Generate a random token suggestion
-      const randomToken = 'sk-cc-' + Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
-      const token = prompt('Enter new token (or keep random suggestion):', randomToken);
-      if (!token) return;
-
-      allowedTokens.push(token);
+      tokenConfigs.push({ token: tokenVal, note: noteVal });
       renderTokens();
-      saveTokens();
+      persistTokens();
+      hideAddToken();
     }
 
     function deleteToken(index) {
       if (!confirm('Delete this token? Clients using it will lose access.')) return;
-      allowedTokens.splice(index, 1);
+      tokenConfigs.splice(index, 1);
       renderTokens();
-      saveTokens();
+      persistTokens();
     }
 
-    async function saveProviders() {
+    async function persistTokens() {
       try {
-        const res = await fetch('/admin/config?token=' + TOKEN, {
+        var res = await fetch('/admin/tokens?token=' + TOKEN, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(providers)
-        });
-        if (res.ok) {
-          showStatus('Configuration saved!');
-        } else {
-          showStatus('Failed to save: ' + await res.text(), true);
-        }
-      } catch (e) {
-        showStatus('Error: ' + e.message, true);
-      }
-    }
-
-    async function saveTokens() {
-      try {
-        const res = await fetch('/admin/tokens?token=' + TOKEN, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(allowedTokens)
+          body: JSON.stringify(tokenConfigs)
         });
         if (res.ok) {
           showStatus('Tokens saved!');
@@ -437,10 +547,231 @@ export ANTHROPIC_BASE_URL="${escapeHtml(workerBaseUrl)}"</div>
       }
     }
 
+    // ---- Providers ----
+    function renderProviders() {
+      var container = document.getElementById('providerList');
+      if (providers.length === 0) {
+        container.innerHTML = '<div class="empty-state">No providers configured. Add one to get started.</div>';
+        return;
+      }
+      container.innerHTML = providers.map(function(p, i) {
+        var mappingCount = p.modelMapping ? Object.keys(p.modelMapping).length : 0;
+        return '<div class="card provider-card">' +
+          '<div class="card-header">' +
+            '<div>' +
+              '<div class="card-title">' + escapeHtml(p.name) + '</div>' +
+              '<div class="card-subtitle">' + escapeHtml(p.baseUrl) + '</div>' +
+              '<div class="card-meta">' +
+                'Auth: ' + escapeHtml(p.authHeader || 'x-api-key') +
+                (mappingCount > 0 ? ' | Mappings: ' + mappingCount : '') +
+              '</div>' +
+            '</div>' +
+            '<div class="card-actions">' +
+              '<button class="btn btn-outline btn-sm" onclick="openProviderModal(' + i + ')">Edit</button>' +
+              '<button class="btn btn-danger btn-sm" onclick="deleteProvider(' + i + ')">Delete</button>' +
+            '</div>' +
+          '</div>' +
+        '</div>';
+      }).join('');
+    }
+
+    function deleteProvider(index) {
+      if (!confirm('Delete this provider?')) return;
+      providers.splice(index, 1);
+      renderProviders();
+      persistProviders();
+    }
+
+    // ---- Provider Modal ----
+    var modelMappings = [];
+    var customHeaders = [];
+
+    function openProviderModal(editIndex) {
+      var modal = document.getElementById('providerModal');
+      var title = document.getElementById('providerModalTitle');
+      document.getElementById('testResult').className = 'test-result';
+      document.getElementById('testResult').textContent = '';
+
+      if (editIndex !== undefined && editIndex >= 0) {
+        title.textContent = 'Edit Provider';
+        document.getElementById('providerEditIndex').value = editIndex;
+        var p = providers[editIndex];
+        document.getElementById('providerName').value = p.name || '';
+        document.getElementById('providerBaseUrl').value = p.baseUrl || '';
+        document.getElementById('providerApiKey').value = p.apiKey || '';
+        document.getElementById('providerAuthHeader').value = p.authHeader || 'x-api-key';
+        modelMappings = p.modelMapping ? Object.entries(p.modelMapping).map(function(e) { return { key: e[0], value: e[1] }; }) : [];
+        customHeaders = p.headers ? Object.entries(p.headers).map(function(e) { return { key: e[0], value: e[1] }; }) : [];
+      } else {
+        title.textContent = 'Add Provider';
+        document.getElementById('providerEditIndex').value = '-1';
+        document.getElementById('providerName').value = '';
+        document.getElementById('providerBaseUrl').value = '';
+        document.getElementById('providerApiKey').value = '';
+        document.getElementById('providerAuthHeader').value = 'x-api-key';
+        modelMappings = [];
+        customHeaders = [];
+      }
+
+      renderModelMappings();
+      renderCustomHeaders();
+      modal.classList.add('active');
+    }
+
+    function closeProviderModal() {
+      document.getElementById('providerModal').classList.remove('active');
+    }
+
+    function toggleApiKeyVisibility() {
+      var input = document.getElementById('providerApiKey');
+      var btn = input.parentElement.querySelector('.password-toggle');
+      if (input.type === 'password') {
+        input.type = 'text';
+        btn.textContent = 'Hide';
+      } else {
+        input.type = 'password';
+        btn.textContent = 'Show';
+      }
+    }
+
+    function renderModelMappings() {
+      var container = document.getElementById('modelMappingEditor');
+      container.innerHTML = modelMappings.map(function(m, i) {
+        return '<div class="kv-row">' +
+          '<input type="text" placeholder="Source model" value="' + escapeHtml(m.key) + '" onchange="modelMappings[' + i + '].key=this.value">' +
+          '<input type="text" placeholder="Target model" value="' + escapeHtml(m.value) + '" onchange="modelMappings[' + i + '].value=this.value">' +
+          '<button class="kv-remove" onclick="modelMappings.splice(' + i + ',1);renderModelMappings()">&times;</button>' +
+        '</div>';
+      }).join('');
+    }
+
+    function addModelMapping() {
+      modelMappings.push({ key: '', value: '' });
+      renderModelMappings();
+    }
+
+    function renderCustomHeaders() {
+      var container = document.getElementById('customHeadersEditor');
+      container.innerHTML = customHeaders.map(function(h, i) {
+        return '<div class="kv-row">' +
+          '<input type="text" placeholder="Header name" value="' + escapeHtml(h.key) + '" onchange="customHeaders[' + i + '].key=this.value">' +
+          '<input type="text" placeholder="Header value" value="' + escapeHtml(h.value) + '" onchange="customHeaders[' + i + '].value=this.value">' +
+          '<button class="kv-remove" onclick="customHeaders.splice(' + i + ',1);renderCustomHeaders()">&times;</button>' +
+        '</div>';
+      }).join('');
+    }
+
+    function addCustomHeader() {
+      customHeaders.push({ key: '', value: '' });
+      renderCustomHeaders();
+    }
+
+    function getProviderFromForm() {
+      var name = document.getElementById('providerName').value.trim();
+      var baseUrl = document.getElementById('providerBaseUrl').value.trim();
+      var apiKey = document.getElementById('providerApiKey').value.trim();
+      var authHeader = document.getElementById('providerAuthHeader').value.trim() || 'x-api-key';
+
+      if (!name || !baseUrl || !apiKey) {
+        showStatus('Name, Base URL, and API Key are required', true);
+        return null;
+      }
+
+      var provider = { name: name, baseUrl: baseUrl, apiKey: apiKey, authHeader: authHeader };
+
+      var mapping = {};
+      var hasMapping = false;
+      modelMappings.forEach(function(m) {
+        if (m.key && m.value) {
+          mapping[m.key] = m.value;
+          hasMapping = true;
+        }
+      });
+      if (hasMapping) provider.modelMapping = mapping;
+
+      var hdrs = {};
+      var hasHeaders = false;
+      customHeaders.forEach(function(h) {
+        if (h.key && h.value) {
+          hdrs[h.key] = h.value;
+          hasHeaders = true;
+        }
+      });
+      if (hasHeaders) provider.headers = hdrs;
+
+      return provider;
+    }
+
+    function saveProvider() {
+      var provider = getProviderFromForm();
+      if (!provider) return;
+
+      var editIndex = parseInt(document.getElementById('providerEditIndex').value, 10);
+      if (editIndex >= 0) {
+        providers[editIndex] = provider;
+      } else {
+        providers.push(provider);
+      }
+
+      renderProviders();
+      persistProviders();
+      closeProviderModal();
+    }
+
+    async function testConnection() {
+      var provider = getProviderFromForm();
+      if (!provider) return;
+
+      var resultEl = document.getElementById('testResult');
+      var btn = document.getElementById('testConnectionBtn');
+      resultEl.className = 'test-result loading';
+      resultEl.textContent = 'Testing connection...';
+      btn.disabled = true;
+
+      try {
+        var res = await fetch('/admin/test-provider?token=' + TOKEN, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(provider)
+        });
+        var data = await res.json();
+        if (data.success) {
+          resultEl.className = 'test-result success';
+          resultEl.textContent = data.message || 'Connection successful!';
+        } else {
+          resultEl.className = 'test-result error';
+          resultEl.textContent = data.error || 'Connection failed';
+        }
+      } catch (e) {
+        resultEl.className = 'test-result error';
+        resultEl.textContent = 'Error: ' + e.message;
+      } finally {
+        btn.disabled = false;
+      }
+    }
+
+    async function persistProviders() {
+      try {
+        var res = await fetch('/admin/config?token=' + TOKEN, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(providers)
+        });
+        if (res.ok) {
+          showStatus('Providers saved!');
+        } else {
+          showStatus('Failed to save: ' + await res.text(), true);
+        }
+      } catch (e) {
+        showStatus('Error: ' + e.message, true);
+      }
+    }
+
+    // ---- Settings ----
     async function saveSettings() {
       try {
-        const cooldown = parseInt(document.getElementById('cooldownInput').value, 10);
-        const res = await fetch('/admin/settings?token=' + TOKEN, {
+        var cooldown = parseInt(document.getElementById('cooldownInput').value, 10);
+        var res = await fetch('/admin/settings?token=' + TOKEN, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ cooldownDuration: cooldown })
@@ -455,9 +786,20 @@ export ANTHROPIC_BASE_URL="${escapeHtml(workerBaseUrl)}"</div>
       }
     }
 
+    // ---- JSON Editor ----
+    function toggleJsonEditor() {
+      var trigger = document.querySelector('#json-section .collapsible-trigger');
+      var content = document.getElementById('jsonEditorSection');
+      trigger.classList.toggle('open');
+      content.classList.toggle('open');
+      if (content.classList.contains('open')) {
+        document.getElementById('jsonEditor').value = JSON.stringify(providers, null, 2);
+      }
+    }
+
     function formatJson() {
       try {
-        const json = JSON.parse(document.getElementById('jsonEditor').value);
+        var json = JSON.parse(document.getElementById('jsonEditor').value);
         document.getElementById('jsonEditor').value = JSON.stringify(json, null, 2);
       } catch (e) {
         showStatus('Invalid JSON: ' + e.message, true);
@@ -467,14 +809,16 @@ export ANTHROPIC_BASE_URL="${escapeHtml(workerBaseUrl)}"</div>
     async function saveJson() {
       try {
         providers = JSON.parse(document.getElementById('jsonEditor').value);
-        await saveProviders();
+        await persistProviders();
         renderProviders();
       } catch (e) {
         showStatus('Invalid JSON: ' + e.message, true);
       }
     }
 
+    // ---- Init ----
     renderProviders();
+    renderTokens();
   </script>
 </body>
 </html>`;
@@ -531,8 +875,12 @@ export async function postConfig(c: Context<{ Bindings: Bindings }>) {
  * GET /admin/tokens - Get allowed tokens
  */
 export async function getTokens(c: Context<{ Bindings: Bindings }>) {
-  const tokens = await getRawTokens(c.env);
-  return c.json(JSON.parse(tokens));
+  const raw = await getRawTokens(c.env);
+  const parsed = JSON.parse(raw);
+  if (Array.isArray(parsed)) {
+    return c.json(parseTokenConfigs(parsed));
+  }
+  return c.json([]);
 }
 
 /**
@@ -540,17 +888,35 @@ export async function getTokens(c: Context<{ Bindings: Bindings }>) {
  */
 export async function postTokens(c: Context<{ Bindings: Bindings }>) {
   try {
-    const tokens = await c.req.json<string[]>();
+    const tokens = await c.req.json<unknown[]>();
 
     // Validate
     if (!Array.isArray(tokens)) {
       return c.json({ error: "Tokens must be an array" }, 400);
     }
 
-    // Filter out non-string items or empty strings
-    const validTokens = tokens.filter(
-      (t) => typeof t === "string" && t.length > 0,
-    );
+    // Validate note format if present
+    const notePattern = /^[a-zA-Z0-9 -]*$/;
+    for (const item of tokens) {
+      if (
+        item &&
+        typeof item === "object" &&
+        "note" in item &&
+        (item as TokenConfig).note
+      ) {
+        if (!notePattern.test((item as TokenConfig).note!)) {
+          return c.json(
+            {
+              error:
+                "Token note must contain only English letters, numbers, spaces, and hyphens",
+            },
+            400,
+          );
+        }
+      }
+    }
+
+    const validTokens = parseTokenConfigs(tokens);
 
     await saveTokens(c.env, validTokens);
     return c.json({ success: true, count: validTokens.length });
@@ -565,6 +931,97 @@ export async function postTokens(c: Context<{ Bindings: Bindings }>) {
 export async function getSettings(c: Context<{ Bindings: Bindings }>) {
   const cooldown = await getRawCooldown(c.env);
   return c.json({ cooldownDuration: cooldown });
+}
+
+/**
+ * POST /admin/test-provider - Test connection to a provider
+ */
+export async function testProvider(c: Context<{ Bindings: Bindings }>) {
+  try {
+    const provider = await c.req.json<ProviderConfig>();
+
+    if (!provider.name || !provider.baseUrl || !provider.apiKey) {
+      return c.json(
+        { success: false, error: "Missing name, baseUrl, or apiKey" },
+        400,
+      );
+    }
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 10000);
+
+    try {
+      const headerName = provider.authHeader || "x-api-key";
+      const headers: Record<string, string> = {
+        "content-type": "application/json",
+      };
+
+      if (headerName === "Authorization") {
+        headers["Authorization"] = provider.apiKey.startsWith("Bearer ")
+          ? provider.apiKey
+          : `Bearer ${provider.apiKey}`;
+      } else {
+        headers[headerName] = provider.apiKey;
+      }
+
+      if (provider.headers) {
+        Object.assign(headers, provider.headers);
+      }
+
+      // Send a minimal messages request to verify connectivity and auth
+      const testBody = {
+        model: "claude-sonnet-4-20250514",
+        max_tokens: 1,
+        messages: [{ role: "user", content: "Hi" }],
+      };
+
+      // Apply model mapping if present
+      if (provider.modelMapping && provider.modelMapping[testBody.model]) {
+        testBody.model = provider.modelMapping[testBody.model];
+      }
+
+      const response = await fetch(provider.baseUrl, {
+        method: "POST",
+        headers,
+        body: JSON.stringify(testBody),
+        signal: controller.signal,
+      });
+
+      clearTimeout(timeoutId);
+
+      if (response.ok || response.status === 200 || response.status === 201) {
+        return c.json({
+          success: true,
+          message: `Connection successful (HTTP ${response.status})`,
+        });
+      }
+
+      const errorText = await response.text();
+      let errorMessage = `HTTP ${response.status}`;
+      try {
+        const errorJson = JSON.parse(errorText);
+        errorMessage =
+          errorJson.error?.message || errorJson.message || errorMessage;
+      } catch {
+        if (errorText.length < 200) {
+          errorMessage = errorText || errorMessage;
+        }
+      }
+
+      return c.json({ success: false, error: errorMessage });
+    } catch (error: any) {
+      clearTimeout(timeoutId);
+      if (error.name === "AbortError") {
+        return c.json({
+          success: false,
+          error: "Connection timed out (10s)",
+        });
+      }
+      return c.json({ success: false, error: error.message });
+    }
+  } catch (e: any) {
+    return c.json({ success: false, error: e.message }, 400);
+  }
 }
 
 /**

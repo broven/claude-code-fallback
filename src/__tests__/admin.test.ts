@@ -5,8 +5,11 @@ import {
   adminPage,
   getConfig,
   postConfig,
+  getTokens,
+  postTokens,
   getSettings,
   postSettings,
+  testProvider,
 } from '../admin';
 import { Bindings } from '../types';
 import { createMockBindings } from './mocks/kv';
@@ -24,8 +27,11 @@ function createTestApp() {
   app.get('/admin', authMiddleware, adminPage);
   app.get('/admin/config', authMiddleware, getConfig);
   app.post('/admin/config', authMiddleware, postConfig);
+  app.get('/admin/tokens', authMiddleware, getTokens);
+  app.post('/admin/tokens', authMiddleware, postTokens);
   app.get('/admin/settings', authMiddleware, getSettings);
   app.post('/admin/settings', authMiddleware, postSettings);
+  app.post('/admin/test-provider', authMiddleware, testProvider);
   return app;
 }
 
@@ -217,6 +223,34 @@ describe('adminPage', () => {
     const response = await app.fetch(request, env);
 
     expect(response.status).toBe(200);
+  });
+
+  it('uses sectioned layout instead of tabs', async () => {
+    const env = createMockBindings({ adminToken: 'test-token' });
+    const request = createRequest('/admin', { token: 'test-token' });
+
+    const response = await app.fetch(request, env);
+    const html = await response.text();
+
+    // Should have sections, not tabs
+    expect(html).toContain('tokens-section');
+    expect(html).toContain('providers-section');
+    expect(html).toContain('settings-section');
+    expect(html).toContain('json-section');
+    // Should not have tab navigation
+    expect(html).not.toContain("switchView('visual')");
+    expect(html).not.toContain("switchView('tokens')");
+  });
+
+  it('includes provider modal', async () => {
+    const env = createMockBindings({ adminToken: 'test-token' });
+    const request = createRequest('/admin', { token: 'test-token' });
+
+    const response = await app.fetch(request, env);
+    const html = await response.text();
+
+    expect(html).toContain('providerModal');
+    expect(html).toContain('Test Connection');
   });
 });
 
@@ -604,5 +638,231 @@ describe('settings API', () => {
     const response = await app.fetch(request, env);
 
     expect(response.status).toBe(400);
+  });
+});
+
+describe('tokens API (TokenConfig format)', () => {
+  let app: Hono<{ Bindings: Bindings }>;
+
+  beforeEach(() => {
+    app = createTestApp();
+  });
+
+  describe('GET /admin/tokens', () => {
+    it('returns empty array when no tokens configured', async () => {
+      const env = createMockBindings({ adminToken: 'test-token' });
+      const request = createRequest('/admin/tokens', { token: 'test-token' });
+
+      const response = await app.fetch(request, env);
+      const data = await response.json();
+
+      expect(response.status).toBe(200);
+      expect(data).toEqual([]);
+    });
+
+    it('returns TokenConfig array for new format', async () => {
+      const tokenConfigs = [
+        { token: 'sk-cc-abc123', note: 'dev machine' },
+        { token: 'sk-cc-xyz789' },
+      ];
+      const env = createMockBindings({
+        adminToken: 'test-token',
+        kvData: { allowed_tokens: JSON.stringify(tokenConfigs) },
+      });
+      const request = createRequest('/admin/tokens', { token: 'test-token' });
+
+      const response = await app.fetch(request, env);
+      const data = await response.json() as { token: string; note?: string }[];
+
+      expect(response.status).toBe(200);
+      expect(data).toHaveLength(2);
+      expect(data[0].token).toBe('sk-cc-abc123');
+      expect(data[0].note).toBe('dev machine');
+      expect(data[1].token).toBe('sk-cc-xyz789');
+    });
+
+    it('migrates old string[] format to TokenConfig[]', async () => {
+      const oldTokens = ['sk-cc-old1', 'sk-cc-old2'];
+      const env = createMockBindings({
+        adminToken: 'test-token',
+        kvData: { allowed_tokens: JSON.stringify(oldTokens) },
+      });
+      const request = createRequest('/admin/tokens', { token: 'test-token' });
+
+      const response = await app.fetch(request, env);
+      const data = await response.json() as { token: string }[];
+
+      expect(response.status).toBe(200);
+      expect(data).toHaveLength(2);
+      expect(data[0].token).toBe('sk-cc-old1');
+      expect(data[1].token).toBe('sk-cc-old2');
+    });
+  });
+
+  describe('POST /admin/tokens', () => {
+    it('saves TokenConfig array', async () => {
+      const env = createMockBindings({ adminToken: 'test-token' });
+      const tokenConfigs = [
+        { token: 'sk-cc-new1', note: 'test note' },
+        { token: 'sk-cc-new2' },
+      ];
+      const request = createRequest('/admin/tokens', {
+        method: 'POST',
+        token: 'test-token',
+        body: tokenConfigs,
+      });
+
+      const response = await app.fetch(request, env);
+      const data = await response.json();
+
+      expect(response.status).toBe(200);
+      expect(data).toEqual({ success: true, count: 2 });
+    });
+
+    it('persists tokens and retrieves them', async () => {
+      const env = createMockBindings({ adminToken: 'test-token' });
+      const tokenConfigs = [{ token: 'sk-cc-persist', note: 'persisted' }];
+
+      const saveRequest = createRequest('/admin/tokens', {
+        method: 'POST',
+        token: 'test-token',
+        body: tokenConfigs,
+      });
+      await app.fetch(saveRequest, env);
+
+      const getRequest = createRequest('/admin/tokens', { token: 'test-token' });
+      const response = await app.fetch(getRequest, env);
+      const data = await response.json() as { token: string; note?: string }[];
+
+      expect(data).toHaveLength(1);
+      expect(data[0].token).toBe('sk-cc-persist');
+      expect(data[0].note).toBe('persisted');
+    });
+
+    it('rejects non-array body', async () => {
+      const env = createMockBindings({ adminToken: 'test-token' });
+      const request = createRequest('/admin/tokens', {
+        method: 'POST',
+        token: 'test-token',
+        body: { notAnArray: true },
+      });
+
+      const response = await app.fetch(request, env);
+
+      expect(response.status).toBe(400);
+    });
+
+    it('filters out invalid items', async () => {
+      const env = createMockBindings({ adminToken: 'test-token' });
+      const request = createRequest('/admin/tokens', {
+        method: 'POST',
+        token: 'test-token',
+        body: [
+          { token: 'sk-cc-valid' },
+          { token: '' },
+          123,
+          null,
+          { token: 'sk-cc-also-valid', note: 'ok' },
+        ],
+      });
+
+      const response = await app.fetch(request, env);
+      const data = await response.json();
+
+      expect(response.status).toBe(200);
+      expect(data).toEqual({ success: true, count: 2 });
+    });
+
+    it('rejects notes with special characters', async () => {
+      const env = createMockBindings({ adminToken: 'test-token' });
+      const request = createRequest('/admin/tokens', {
+        method: 'POST',
+        token: 'test-token',
+        body: [{ token: 'sk-cc-test', note: 'bad<script>note' }],
+      });
+
+      const response = await app.fetch(request, env);
+
+      expect(response.status).toBe(400);
+      const data = await response.json() as { error: string };
+      expect(data.error).toContain('English letters');
+    });
+
+    it('accepts notes with valid characters', async () => {
+      const env = createMockBindings({ adminToken: 'test-token' });
+      const request = createRequest('/admin/tokens', {
+        method: 'POST',
+        token: 'test-token',
+        body: [{ token: 'sk-cc-test', note: 'dev-machine John 2024' }],
+      });
+
+      const response = await app.fetch(request, env);
+
+      expect(response.status).toBe(200);
+    });
+
+    it('accepts backward-compatible string array', async () => {
+      const env = createMockBindings({ adminToken: 'test-token' });
+      const request = createRequest('/admin/tokens', {
+        method: 'POST',
+        token: 'test-token',
+        body: ['sk-cc-str1', 'sk-cc-str2'],
+      });
+
+      const response = await app.fetch(request, env);
+      const data = await response.json();
+
+      expect(response.status).toBe(200);
+      expect(data).toEqual({ success: true, count: 2 });
+    });
+  });
+});
+
+describe('testProvider API', () => {
+  let app: Hono<{ Bindings: Bindings }>;
+
+  beforeEach(() => {
+    app = createTestApp();
+  });
+
+  it('returns 400 for missing required fields', async () => {
+    const env = createMockBindings({ adminToken: 'test-token' });
+    const request = createRequest('/admin/test-provider', {
+      method: 'POST',
+      token: 'test-token',
+      body: { name: 'test' },
+    });
+
+    const response = await app.fetch(request, env);
+    const data = await response.json() as { success: boolean; error: string };
+
+    expect(response.status).toBe(400);
+    expect(data.success).toBe(false);
+    expect(data.error).toContain('Missing');
+  });
+
+  it('returns 400 for invalid JSON body', async () => {
+    const env = createMockBindings({ adminToken: 'test-token' });
+    const request = new Request('http://localhost/admin/test-provider?token=test-token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: 'not valid json{',
+    });
+
+    const response = await app.fetch(request, env);
+
+    expect(response.status).toBe(400);
+  });
+
+  it('requires authentication', async () => {
+    const env = createMockBindings({ adminToken: 'test-token' });
+    const request = createRequest('/admin/test-provider', {
+      method: 'POST',
+      body: validProvider,
+    });
+
+    const response = await app.fetch(request, env);
+
+    expect(response.status).toBe(401);
   });
 });
