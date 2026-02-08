@@ -10,8 +10,7 @@ export const validProvider: ProviderConfig = {
   apiKey: 'sk-test-key-123',
   authHeader: 'Authorization',
   modelMapping: {
-    'claude-sonnet-4-20250514': 'anthropic/claude-sonnet-4',
-    'claude-3-opus-20240229': 'anthropic/claude-3-opus',
+    'claude-sonnet-4-5-20250929': 'anthropic/claude-sonnet-4',
   },
 };
 
@@ -61,7 +60,7 @@ export const openaiFormatProvider: ProviderConfig = {
   authHeader: 'Authorization',
   format: 'openai',
   modelMapping: {
-    'claude-sonnet-4-20250514': 'anthropic/claude-sonnet-4',
+    'claude-sonnet-4-5-20250929': 'anthropic/claude-sonnet-4',
   },
 };
 

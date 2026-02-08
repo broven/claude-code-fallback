@@ -30,7 +30,7 @@ export async function loadConfig(env: Bindings): Promise<AppConfig> {
         for (const p of parsed) {
           if (!p.name || !p.baseUrl || !p.apiKey) {
             console.warn(
-              `[Config] Skipping invalid provider: ${JSON.stringify(p)} - missing name, baseUrl, or apiKey`
+              `[Config] Skipping invalid provider: ${JSON.stringify(p)} - missing name, baseUrl, or apiKey`,
             );
             continue;
           }
@@ -65,11 +65,18 @@ export async function loadConfig(env: Bindings): Promise<AppConfig> {
 
   if (debug) {
     console.log(
-      `[Config] Loaded ${providers.length} providers. Allowed tokens: ${allowedTokens.length}. Cooldown: ${cooldownDuration}s. Debug: ${debug}`
+      `[Config] Loaded ${providers.length} providers. Allowed tokens: ${allowedTokens.length}. Cooldown: ${cooldownDuration}s. Debug: ${debug}`,
     );
   }
 
-  return { debug, providers, allowedTokens, tokenConfigs, cooldownDuration, anthropicPrimaryDisabled };
+  return {
+    debug,
+    providers,
+    allowedTokens,
+    tokenConfigs,
+    cooldownDuration,
+    anthropicPrimaryDisabled,
+  };
 }
 
 /**
@@ -77,7 +84,7 @@ export async function loadConfig(env: Bindings): Promise<AppConfig> {
  */
 export async function saveConfig(
   env: Bindings,
-  providers: ProviderConfig[]
+  providers: ProviderConfig[],
 ): Promise<void> {
   await env.CONFIG_KV.put(KV_KEY, JSON.stringify(providers));
 }
@@ -112,7 +119,7 @@ export function parseTokenConfigs(parsed: unknown[]): TokenConfig[] {
  */
 export async function saveTokens(
   env: Bindings,
-  tokens: TokenConfig[]
+  tokens: TokenConfig[],
 ): Promise<void> {
   await env.CONFIG_KV.put(TOKENS_KV_KEY, JSON.stringify(tokens));
 }
@@ -122,7 +129,7 @@ export async function saveTokens(
  */
 export async function saveCooldown(
   env: Bindings,
-  duration: number
+  duration: number,
 ): Promise<void> {
   await env.CONFIG_KV.put(COOLDOWN_KV_KEY, duration.toString());
 }
@@ -168,7 +175,7 @@ export async function getRawAnthropicDisabled(env: Bindings): Promise<boolean> {
  */
 export async function saveAnthropicDisabled(
   env: Bindings,
-  disabled: boolean
+  disabled: boolean,
 ): Promise<void> {
   await env.CONFIG_KV.put(ANTHROPIC_DISABLED_KV_KEY, disabled.toString());
 }

@@ -18,7 +18,6 @@
     },
   ],
   "vars": {
-    "DEBUG": "false",
     "COOLDOWN_DURATION": "300",
     // ADMIN_TOKEN should be set via Cloudflare Dashboard
     // Workers & Pages -> Your Worker -> Settings -> Variables and Secrets

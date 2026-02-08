@@ -44,7 +44,7 @@ Provider configs are stored as JSON array in Cloudflare KV namespace `CONFIG_KV`
     "apiKey": "sk-...",
     "authHeader": "Authorization",
     "modelMapping": {
-      "claude-sonnet-4-20250514": "anthropic/claude-sonnet-4"
+      "claude-sonnet-4-5-20250929": "anthropic/claude-sonnet-4"
     }
   }
 ]

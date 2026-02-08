@@ -600,7 +600,7 @@ describe("testProvider success and error paths", () => {
         baseUrl: "https://api.example.com/v1/messages",
         apiKey: "sk-test-key",
         modelMapping: {
-          "claude-sonnet-4-20250514": "anthropic/claude-sonnet-4",
+          "claude-sonnet-4-5-20250929": "anthropic/claude-sonnet-4",
         },
       },
     });
@@ -613,11 +613,11 @@ describe("testProvider success and error paths", () => {
     expect(models).toContain("anthropic/claude-sonnet-4");
     // Unmapped models use original IDs
     expect(models).toContain("claude-opus-4-20250514");
-    expect(models).toContain("claude-3-5-haiku-20241022");
+    expect(models).toContain("claude-haiku-4-5-20251001");
 
     // Check mappedTo in results
     const sonnetResult = data.results.find(
-      (r: any) => r.model === "claude-sonnet-4-20250514",
+      (r: any) => r.model === "claude-sonnet-4-5-20250929",
     );
     expect(sonnetResult.mappedTo).toBe("anthropic/claude-sonnet-4");
     expect(sonnetResult.hasMappingConfigured).toBe(true);
@@ -720,10 +720,10 @@ describe("testProvider success and error paths", () => {
     expect(data.success).toBe(true);
     expect(data.results).toHaveLength(4);
     expect(data.results.map((r: any) => r.model)).toEqual([
-      "claude-sonnet-4-20250514",
+      "claude-sonnet-4-5-20250929",
       "claude-opus-4-20250514",
       "claude-opus-4-6",
-      "claude-3-5-haiku-20241022",
+      "claude-haiku-4-5-20251001",
     ]);
     data.results.forEach((r: any) => {
       expect(r.success).toBe(true);
@@ -822,10 +822,10 @@ describe("testProvider success and error paths", () => {
         baseUrl: "https://api.example.com/v1/messages",
         apiKey: "sk-test-key",
         modelMapping: {
-          "claude-sonnet-4-20250514": "mapped-sonnet",
+          "claude-sonnet-4-5-20250929": "mapped-sonnet",
           "claude-opus-4-20250514": "mapped-opus",
           "claude-opus-4-6": "mapped-opus-46",
-          "claude-3-5-haiku-20241022": "mapped-haiku",
+          "claude-haiku-4-5-20251001": "mapped-haiku",
         },
       },
     });

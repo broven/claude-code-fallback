@@ -193,10 +193,15 @@ app.post("/v1/messages", async (c) => {
         provider,
         body,
         headers as Record<string, string>,
+        config,
       );
 
       if (response.ok) {
-        console.log(`[Proxy] Provider ${provider.name} request successful`);
+        console.log(`{
+          status: ${response.status},
+          provider: ${provider.name},
+          model: ${body.model}
+        }`);
         await markProviderSuccess(provider.name, c.env);
         return new Response(response.body, {
           status: response.status,
@@ -206,10 +211,12 @@ app.post("/v1/messages", async (c) => {
 
       const status = response.status;
       const errorText = await response.text();
-      console.log(
-        `[Proxy] Provider ${provider.name} failed with status ${status}`,
-      );
-
+      console.log(`{
+        text: ${errorText},
+        status: ${response.status},
+        provider: ${provider.name},
+        model: ${body.model}
+      }`);
       await markProviderFailed(provider.name, cooldownDuration, c.env);
 
       lastErrorResponse = new Response(errorText, {
@@ -217,13 +224,15 @@ app.post("/v1/messages", async (c) => {
         headers: cleanHeaders(response.headers),
       });
     } catch (error: any) {
-      console.error(`[Proxy] Provider ${provider.name} error:`, error.message);
+      console.log(`{
+        test: ${error.message},
+        status: JSError,
+        provider: ${provider.name},
+        model: ${body.model}
+      }`);
       await markProviderFailed(provider.name, cooldownDuration, c.env);
     }
   }
-
-  // All failed
-  console.log("[Proxy] All providers failed.");
 
   if (lastErrorResponse) {
     return lastErrorResponse;

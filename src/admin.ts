@@ -1,5 +1,5 @@
-import { Context, Next } from "hono";
-import { Bindings, ProviderConfig, TokenConfig } from "./types";
+import { Context, Next } from 'hono';
+import { Bindings, ProviderConfig, TokenConfig } from './types';
 import {
   getRawConfig,
   saveConfig,
@@ -10,8 +10,8 @@ import {
   saveCooldown,
   getRawAnthropicDisabled,
   saveAnthropicDisabled,
-} from "./config";
-import { convertAnthropicToOpenAI } from "./utils/format-converter";
+} from './config';
+import { convertAnthropicToOpenAI } from './utils/format-converter';
 
 /**
  * Authentication middleware - validates token from query or header
@@ -21,15 +21,15 @@ export async function authMiddleware(
   next: Next,
 ) {
   const token =
-    c.req.query("token") ||
-    c.req.header("Authorization")?.replace("Bearer ", "");
+    c.req.query('token') ||
+    c.req.header('Authorization')?.replace('Bearer ', '');
 
   if (!c.env.ADMIN_TOKEN) {
-    return c.text("ADMIN_TOKEN not configured", 500);
+    return c.text('ADMIN_TOKEN not configured', 500);
   }
 
   if (token !== c.env.ADMIN_TOKEN) {
-    return c.text("Unauthorized", 401);
+    return c.text('Unauthorized', 401);
   }
 
   await next();
@@ -39,7 +39,7 @@ export async function authMiddleware(
  * Admin page HTML
  */
 export async function adminPage(c: Context<{ Bindings: Bindings }>) {
-  const token = c.req.query("token") || "";
+  const token = c.req.query('token') || '';
   const config = await getRawConfig(c.env);
   const rawTokens = await getRawTokens(c.env);
   const cooldown = await getRawCooldown(c.env);
@@ -520,12 +520,10 @@ export async function adminPage(c: Context<{ Bindings: Bindings }>) {
     const TOKEN = '${escapeHtml(token)}';
     const WORKER_BASE_URL = '${escapeHtml(workerBaseUrl)}';
     var CLAUDE_MODELS = [
-      { id: 'claude-sonnet-4-20250514', label: 'Claude Sonnet 4' },
+      { id: 'claude-sonnet-4-5-20250929', label: 'Claude Sonnet 4' },
       { id: 'claude-opus-4-20250514', label: 'Claude Opus 4' },
       { id: 'claude-opus-4-6', label: 'Claude Opus 4.6' },
-      { id: 'claude-3-5-haiku-20241022', label: 'Claude 3.5 Haiku' },
-      { id: 'claude-3-5-sonnet-20241022', label: 'Claude 3.5 Sonnet (v2)' },
-      { id: 'claude-3-opus-20240229', label: 'Claude 3 Opus' },
+      { id: 'claude-haiku-4-5-20251001', label: 'Claude 3.5 Haiku' },
     ];
     let providers = [];
     let tokenConfigs = [];
@@ -1199,11 +1197,11 @@ export async function adminPage(c: Context<{ Bindings: Bindings }>) {
 
 function escapeHtml(str: string): string {
   return str
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
 }
 
 /**
@@ -1223,7 +1221,7 @@ export async function postConfig(c: Context<{ Bindings: Bindings }>) {
 
     // Validate
     if (!Array.isArray(providers)) {
-      return c.json({ error: "Config must be an array" }, 400);
+      return c.json({ error: 'Config must be an array' }, 400);
     }
 
     for (const p of providers) {
@@ -1233,7 +1231,7 @@ export async function postConfig(c: Context<{ Bindings: Bindings }>) {
           400,
         );
       }
-      if (p.format && p.format !== "anthropic" && p.format !== "openai") {
+      if (p.format && p.format !== 'anthropic' && p.format !== 'openai') {
         return c.json(
           { error: `Invalid provider format: must be "anthropic" or "openai"` },
           400,
@@ -1269,7 +1267,7 @@ export async function postTokens(c: Context<{ Bindings: Bindings }>) {
 
     // Validate
     if (!Array.isArray(tokens)) {
-      return c.json({ error: "Tokens must be an array" }, 400);
+      return c.json({ error: 'Tokens must be an array' }, 400);
     }
 
     // Validate note format if present
@@ -1277,15 +1275,15 @@ export async function postTokens(c: Context<{ Bindings: Bindings }>) {
     for (const item of tokens) {
       if (
         item &&
-        typeof item === "object" &&
-        "note" in item &&
+        typeof item === 'object' &&
+        'note' in item &&
         (item as TokenConfig).note
       ) {
         if (!notePattern.test((item as TokenConfig).note!)) {
           return c.json(
             {
               error:
-                "Token note must contain only English letters, numbers, spaces, and hyphens",
+                'Token note must contain only English letters, numbers, spaces, and hyphens',
             },
             400,
           );
@@ -1311,10 +1309,10 @@ export async function getSettings(c: Context<{ Bindings: Bindings }>) {
 }
 
 const TEST_MODELS = [
-  { id: "claude-sonnet-4-20250514", label: "Claude Sonnet 4" },
-  { id: "claude-opus-4-20250514", label: "Claude Opus 4" },
-  { id: "claude-opus-4-6", label: "Claude Opus 4.6" },
-  { id: "claude-3-5-haiku-20241022", label: "Claude 3.5 Haiku" },
+  { id: 'claude-sonnet-4-5-20250929', label: 'Claude Sonnet 4' },
+  { id: 'claude-opus-4-20250514', label: 'Claude Opus 4' },
+  { id: 'claude-opus-4-6', label: 'Claude Opus 4.6' },
+  { id: 'claude-haiku-4-5-20251001', label: 'Claude 3.5 Haiku' },
 ];
 
 interface ModelTestResult {
@@ -1343,13 +1341,13 @@ async function testSingleModel(
     : modelId;
 
   try {
-    const headerName = provider.authHeader || "x-api-key";
+    const headerName = provider.authHeader || 'x-api-key';
     const headers: Record<string, string> = {
-      "content-type": "application/json",
+      'content-type': 'application/json',
     };
 
-    if (headerName === "Authorization") {
-      headers["Authorization"] = provider.apiKey.startsWith("Bearer ")
+    if (headerName === 'Authorization') {
+      headers['Authorization'] = provider.apiKey.startsWith('Bearer ')
         ? provider.apiKey
         : `Bearer ${provider.apiKey}`;
     } else {
@@ -1363,15 +1361,15 @@ async function testSingleModel(
     let testBody: any = {
       model: mappedModel,
       max_tokens: 1,
-      messages: [{ role: "user", content: "Hi" }],
+      messages: [{ role: 'user', content: 'Hi' }],
     };
 
-    if (provider.format === "openai") {
+    if (provider.format === 'openai') {
       testBody = convertAnthropicToOpenAI(testBody);
     }
 
     const response = await fetch(provider.baseUrl, {
-      method: "POST",
+      method: 'POST',
       headers,
       body: JSON.stringify(testBody),
       signal: controller.signal,
@@ -1417,8 +1415,8 @@ async function testSingleModel(
       label: modelLabel,
       success: false,
       error:
-        error.name === "AbortError"
-          ? "Connection timed out (10s)"
+        error.name === 'AbortError'
+          ? 'Connection timed out (10s)'
           : error.message,
       mappedTo: hasMappingConfigured ? mappedModel : undefined,
       hasMappingConfigured,
@@ -1436,7 +1434,7 @@ export async function testProvider(c: Context<{ Bindings: Bindings }>) {
 
     if (!provider.name || !provider.baseUrl || !provider.apiKey) {
       return c.json(
-        { success: false, error: "Missing name, baseUrl, or apiKey" },
+        { success: false, error: 'Missing name, baseUrl, or apiKey' },
         400,
       );
     }
@@ -1453,7 +1451,7 @@ export async function testProvider(c: Context<{ Bindings: Bindings }>) {
 
     let suggestion: string | undefined;
     if (failedWithoutMapping.length > 0) {
-      const modelNames = failedWithoutMapping.map((r) => r.label).join(", ");
+      const modelNames = failedWithoutMapping.map((r) => r.label).join(', ');
       suggestion = `Consider adding model mappings for: ${modelNames}. Your provider may use different model names.`;
     }
 
@@ -1481,8 +1479,8 @@ export async function getAnthropicStatus(c: Context<{ Bindings: Bindings }>) {
 export async function postAnthropicStatus(c: Context<{ Bindings: Bindings }>) {
   try {
     const body = await c.req.json<{ disabled: boolean }>();
-    if (typeof body.disabled !== "boolean") {
-      return c.json({ error: "disabled must be a boolean" }, 400);
+    if (typeof body.disabled !== 'boolean') {
+      return c.json({ error: 'disabled must be a boolean' }, 400);
     }
     await saveAnthropicDisabled(c.env, body.disabled);
     return c.json({ success: true });
@@ -1498,10 +1496,10 @@ export async function postSettings(c: Context<{ Bindings: Bindings }>) {
   try {
     const body = await c.req.json<{ cooldownDuration: number }>();
     if (
-      typeof body.cooldownDuration !== "number" ||
+      typeof body.cooldownDuration !== 'number' ||
       body.cooldownDuration < 0
     ) {
-      return c.json({ error: "Invalid cooldown duration" }, 400);
+      return c.json({ error: 'Invalid cooldown duration' }, 400);
     }
 
     await saveCooldown(c.env, body.cooldownDuration);
