@@ -5,11 +5,14 @@ import {
   minimalProvider,
   providerWithCustomHeaders,
   providerWithBearerToken,
+  openaiFormatProvider,
 } from '../fixtures/providers';
 import {
   validMessageRequest,
+  streamingMessageRequest,
   validHeaders,
   successResponse,
+  openaiSuccessResponse,
 } from '../fixtures/requests';
 import {
   createMockResponse,
@@ -351,6 +354,118 @@ describe('tryProvider', () => {
       const body = mockFetch.mock.calls[0][1].body;
       expect(typeof body).toBe('string');
       expect(() => JSON.parse(body as string)).not.toThrow();
+    });
+  });
+
+  describe('OpenAI format conversion', () => {
+    it('converts request body to OpenAI format when format is openai', async () => {
+      const mockFetch = vi.fn().mockResolvedValue(
+        createMockResponse(openaiSuccessResponse, { status: 200 }),
+      );
+      globalThis.fetch = mockFetch;
+
+      await tryProvider(openaiFormatProvider, validMessageRequest, validHeaders);
+
+      const requestBody = JSON.parse(mockFetch.mock.calls[0][1].body as string);
+      // OpenAI format should not have the Anthropic-specific fields at top level
+      // Messages should be in OpenAI format
+      expect(requestBody.messages).toBeDefined();
+      expect(requestBody.model).toBe('anthropic/claude-sonnet-4'); // model mapping applied
+    });
+
+    it('converts non-streaming OpenAI response back to Anthropic format', async () => {
+      const mockFetch = vi.fn().mockResolvedValue(
+        createMockResponse(openaiSuccessResponse, { status: 200 }),
+      );
+      globalThis.fetch = mockFetch;
+
+      const result = await tryProvider(openaiFormatProvider, validMessageRequest, validHeaders);
+
+      expect(result.status).toBe(200);
+      const body = await result.json() as any;
+      expect(body.type).toBe('message');
+      expect(body.role).toBe('assistant');
+      expect(body.content[0].type).toBe('text');
+      expect(body.content[0].text).toBe('Hello! How can I help you today?');
+      expect(body.stop_reason).toBe('end_turn');
+      expect(body.usage.input_tokens).toBe(10);
+      expect(body.usage.output_tokens).toBe(15);
+    });
+
+    it('converts streaming OpenAI response to Anthropic SSE format', async () => {
+      const encoder = new TextEncoder();
+      const sseData = [
+        'data: {"id":"chatcmpl-1","choices":[{"delta":{"content":"Hi"},"index":0,"finish_reason":"stop"}]}\n\n',
+        'data: [DONE]\n\n',
+      ].join('');
+
+      const stream = new ReadableStream({
+        start(controller) {
+          controller.enqueue(encoder.encode(sseData));
+          controller.close();
+        },
+      });
+
+      const mockResponse = new Response(stream, {
+        status: 200,
+        headers: { 'content-type': 'text/event-stream' },
+      });
+      globalThis.fetch = vi.fn().mockResolvedValue(mockResponse);
+
+      const result = await tryProvider(
+        openaiFormatProvider,
+        streamingMessageRequest,
+        validHeaders,
+      );
+
+      expect(result.status).toBe(200);
+      expect(result.headers.get('content-type')).toBe('text/event-stream');
+
+      // Read the stream and verify events
+      const decoder = new TextDecoder();
+      const reader = result.body!.getReader();
+      let output = '';
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        output += decoder.decode(value, { stream: true });
+      }
+
+      expect(output).toContain('event: message_start');
+      expect(output).toContain('event: content_block_delta');
+      expect(output).toContain('event: message_stop');
+    });
+
+    it('does not convert request when format is anthropic', async () => {
+      const mockFetch = vi.fn().mockResolvedValue(createSuccessResponse(successResponse));
+      globalThis.fetch = mockFetch;
+
+      await tryProvider(validProvider, validMessageRequest, validHeaders);
+
+      const requestBody = JSON.parse(mockFetch.mock.calls[0][1].body as string);
+      // Should still have Anthropic format (messages array with string content)
+      expect(requestBody.messages[0].content).toBe('Hello, Claude!');
+    });
+
+    it('does not convert request when format is undefined', async () => {
+      const mockFetch = vi.fn().mockResolvedValue(createSuccessResponse(successResponse));
+      globalThis.fetch = mockFetch;
+
+      await tryProvider(minimalProvider, validMessageRequest, validHeaders);
+
+      const requestBody = JSON.parse(mockFetch.mock.calls[0][1].body as string);
+      expect(requestBody.messages[0].content).toBe('Hello, Claude!');
+    });
+
+    it('does not convert error responses from OpenAI format provider', async () => {
+      const errorBody = { error: { message: 'Rate limit exceeded' } };
+      const errorResponse = createErrorResponse(429, errorBody);
+      globalThis.fetch = vi.fn().mockResolvedValue(errorResponse);
+
+      const result = await tryProvider(openaiFormatProvider, validMessageRequest, validHeaders);
+
+      // Error responses should be passed through without conversion
+      expect(result.status).toBe(429);
     });
   });
 });

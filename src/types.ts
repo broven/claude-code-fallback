@@ -8,6 +8,7 @@ export interface ProviderConfig {
   authHeader?: string; // Default: 'x-api-key'
   headers?: Record<string, string>;
   modelMapping?: Record<string, string>;
+  format?: "anthropic" | "openai";
 }
 
 /**

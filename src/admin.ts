@@ -9,6 +9,7 @@ import {
   getRawCooldown,
   saveCooldown,
 } from "./config";
+import { convertAnthropicToOpenAI } from "./utils/format-converter";
 
 /**
  * Authentication middleware - validates token from query or header
@@ -412,6 +413,14 @@ export async function adminPage(c: Context<{ Bindings: Bindings }>) {
           </div>
         </div>
         <div class="form-group">
+          <label>API Format</label>
+          <select id="providerFormat" style="width:100%;padding:8px 12px;font-size:14px;border:1px solid #ddd;border-radius:6px;">
+            <option value="anthropic">Anthropic Messages API</option>
+            <option value="openai">OpenAI Chat Completions</option>
+          </select>
+          <div class="help-text">Select the API format this provider accepts.</div>
+        </div>
+        <div class="form-group">
           <label>Model Mapping</label>
           <div class="help-text">Map Anthropic model names to provider-specific names.</div>
           <div class="kv-editor" id="modelMappingEditor"></div>
@@ -605,6 +614,7 @@ export async function adminPage(c: Context<{ Bindings: Bindings }>) {
                 '<span class="card-title">' + escapeHtml(p.name) + '</span>' +
               '</div>' +
               '<div class="card-subtitle">' + escapeHtml(p.baseUrl) + '</div>' +
+              (p.format === 'openai' ? '<div class="card-meta">Format: OpenAI</div>' : '') +
               (mappingCount > 0 ? '<div class="card-meta">Mappings: ' + mappingCount + '</div>' : '') +
             '</div>' +
             '<div class="card-actions">' +
@@ -647,6 +657,7 @@ export async function adminPage(c: Context<{ Bindings: Bindings }>) {
         document.getElementById('providerName').value = p.name || '';
         document.getElementById('providerBaseUrl').value = p.baseUrl || '';
         document.getElementById('providerApiKey').value = p.apiKey || '';
+        document.getElementById('providerFormat').value = p.format || 'anthropic';
         modelMappings = p.modelMapping ? Object.entries(p.modelMapping).map(function(e) { return { key: e[0], value: e[1] }; }) : [];
         customHeaders = p.headers ? Object.entries(p.headers).map(function(e) { return { key: e[0], value: e[1] }; }) : [];
       } else {
@@ -655,6 +666,7 @@ export async function adminPage(c: Context<{ Bindings: Bindings }>) {
         document.getElementById('providerName').value = '';
         document.getElementById('providerBaseUrl').value = '';
         document.getElementById('providerApiKey').value = '';
+        document.getElementById('providerFormat').value = 'anthropic';
         modelMappings = [];
         customHeaders = [];
       }
@@ -727,7 +739,9 @@ export async function adminPage(c: Context<{ Bindings: Bindings }>) {
         return null;
       }
 
+      var format = document.getElementById('providerFormat').value;
       var provider = { name: name, baseUrl: baseUrl, apiKey: apiKey };
+      if (format && format !== 'anthropic') provider.format = format;
 
       var mapping = {};
       var hasMapping = false;
@@ -1059,6 +1073,12 @@ export async function postConfig(c: Context<{ Bindings: Bindings }>) {
           400,
         );
       }
+      if (p.format && p.format !== "anthropic" && p.format !== "openai") {
+        return c.json(
+          { error: `Invalid provider format: must be "anthropic" or "openai"` },
+          400,
+        );
+      }
     }
 
     await saveConfig(c.env, providers);
@@ -1166,7 +1186,7 @@ export async function testProvider(c: Context<{ Bindings: Bindings }>) {
       }
 
       // Send a minimal messages request to verify connectivity and auth
-      const testBody = {
+      let testBody: any = {
         model: "claude-sonnet-4-20250514",
         max_tokens: 1,
         messages: [{ role: "user", content: "Hi" }],
@@ -1175,6 +1195,11 @@ export async function testProvider(c: Context<{ Bindings: Bindings }>) {
       // Apply model mapping if present
       if (provider.modelMapping && provider.modelMapping[testBody.model]) {
         testBody.model = provider.modelMapping[testBody.model];
+      }
+
+      // Convert to OpenAI format if provider uses it
+      if (provider.format === "openai") {
+        testBody = convertAnthropicToOpenAI(testBody);
       }
 
       const response = await fetch(provider.baseUrl, {
