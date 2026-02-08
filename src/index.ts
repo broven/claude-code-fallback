@@ -232,6 +232,7 @@ app.post("/v1/messages", async (c) => {
       error: {
         type: "fallback_exhausted",
         message: "All API providers failed",
+        model: body.model,
       },
     },
     502,
