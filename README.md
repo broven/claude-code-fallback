@@ -1,4 +1,5 @@
 # Claude Code Fallback Proxy
+[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/broven/claude-code-fallback)
 
 A Cloudflare Workers-based fallback proxy that automatically routes to alternative API providers when the Anthropic API is unavailable.
 
