@@ -17,10 +17,6 @@
       "id": "688e2d884dc34e238b4a298311102090",
     },
   ],
-  "placement": {
-    // set to us-east for now, avoid restriction ban
-    "region": "aws:us-east-1",
-  },
   "vars": {
     "DEBUG": "false",
     "COOLDOWN_DURATION": "300",

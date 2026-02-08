@@ -1313,7 +1313,7 @@ export async function getSettings(c: Context<{ Bindings: Bindings }>) {
 const TEST_MODELS = [
   { id: "claude-sonnet-4-20250514", label: "Claude Sonnet 4" },
   { id: "claude-opus-4-20250514", label: "Claude Opus 4" },
-  { id: "claude-opus-4-6-20250415", label: "Claude Opus 4.6" },
+  { id: "claude-opus-4-6", label: "Claude Opus 4.6" },
   { id: "claude-3-5-haiku-20241022", label: "Claude 3.5 Haiku" },
 ];
 
