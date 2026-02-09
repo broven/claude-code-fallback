@@ -432,8 +432,8 @@ export async function adminPage(c: Context<{ Bindings: Bindings }>) {
     </div>
     <div class="card">
       <div class="form-group">
-        <label>Circuit Breaker Cooldown (seconds)</label>
-        <div class="help-text">How long to skip a provider after it fails (default: 300s / 5m).</div>
+        <label>Max Circuit Breaker Cooldown (seconds)</label>
+        <div class="help-text">Maximum cooldown duration after repeated failures. Actual cooldown scales with consecutive failures: 3+ = 30s, 5+ = 60s, 10+ = up to this value (default: 300s).</div>
         <input type="number" id="cooldownInput" value="${cooldown}" min="0" step="1">
       </div>
       <div class="actions">

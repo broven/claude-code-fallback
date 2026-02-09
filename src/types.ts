@@ -41,3 +41,13 @@ export interface Bindings {
   CONFIG_KV: KVNamespace;
   COOLDOWN_DURATION?: string; // Optional, default to 300s
 }
+
+/**
+ * Provider circuit breaker state stored in KV
+ */
+export interface ProviderState {
+  consecutiveFailures: number;
+  lastFailure: number | null;
+  lastSuccess: number | null;
+  cooldownUntil: number | null;
+}
