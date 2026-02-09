@@ -20,6 +20,7 @@ import {
   isProviderAvailable,
   markProviderFailed,
   markProviderSuccess,
+  getLeastRecentlyFailedProvider,
 } from "./utils/circuit-breaker";
 
 const app = new Hono<{ Bindings: Bindings }>();
@@ -84,6 +85,7 @@ app.post("/v1/messages", async (c) => {
   // --- Attempt 1: Primary Anthropic API ---
   let lastErrorResponse: Response | null = null;
   const anthropicName = "anthropic-primary";
+  const cooldownSkipped: string[] = [];
 
   if (config.anthropicPrimaryDisabled) {
     console.log("[Proxy] Skipping anthropic-primary (disabled by admin)");
@@ -95,6 +97,7 @@ app.post("/v1/messages", async (c) => {
 
     if (!isAvailable) {
       console.log(`[Proxy] Skipping ${anthropicName} (Circuit Breaker active)`);
+      cooldownSkipped.push(anthropicName);
     } else {
       try {
         console.log(
@@ -185,6 +188,7 @@ app.post("/v1/messages", async (c) => {
       console.log(
         `[Proxy] Skipping provider ${provider.name} (Circuit Breaker active)`,
       );
+      cooldownSkipped.push(provider.name);
       continue;
     }
 
@@ -231,6 +235,75 @@ app.post("/v1/messages", async (c) => {
         model: ${body.model}
       }`);
       await markProviderFailed(provider.name, cooldownDuration, c.env);
+    }
+  }
+
+  // --- Safety Valve: try least-recently-failed provider when all are in cooldown ---
+  if (cooldownSkipped.length > 0) {
+    const safeName = await getLeastRecentlyFailedProvider(cooldownSkipped, c.env);
+    if (safeName) {
+      console.log(`[Proxy] Safety valve: trying ${safeName} (least recently failed)`);
+      try {
+        if (safeName === anthropicName) {
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), 30000);
+          const filteredHeaders = filterHeadersDebugOption(headers);
+
+          const response = await fetch("https://api.anthropic.com/v1/messages", {
+            method: "POST",
+            headers: filteredHeaders,
+            body: JSON.stringify(body),
+            signal: controller.signal,
+          });
+
+          clearTimeout(timeoutId);
+
+          if (response.ok) {
+            console.log("[Proxy] Safety valve: Anthropic API request successful");
+            await markProviderSuccess(anthropicName, c.env);
+            return new Response(response.body, {
+              status: response.status,
+              headers: cleanHeaders(response.headers),
+            });
+          }
+
+          const errorBody = await response.text();
+          await markProviderFailed(anthropicName, cooldownDuration, c.env);
+          lastErrorResponse = new Response(errorBody, {
+            status: response.status,
+            headers: cleanHeaders(response.headers),
+          });
+        } else {
+          const safeProvider = config.providers.find(p => p.name === safeName);
+          if (safeProvider) {
+            const response = await tryProvider(
+              safeProvider,
+              body,
+              headers as Record<string, string>,
+              config,
+            );
+
+            if (response.ok) {
+              console.log(`[Proxy] Safety valve: ${safeName} request successful`);
+              await markProviderSuccess(safeName, c.env);
+              return new Response(response.body, {
+                status: response.status,
+                headers: cleanHeaders(response.headers),
+              });
+            }
+
+            const errorText = await response.text();
+            await markProviderFailed(safeName, cooldownDuration, c.env);
+            lastErrorResponse = new Response(errorText, {
+              status: response.status,
+              headers: cleanHeaders(response.headers),
+            });
+          }
+        }
+      } catch (error: any) {
+        console.error(`[Proxy] Safety valve: ${safeName} failed:`, error.message);
+        await markProviderFailed(safeName, cooldownDuration, c.env);
+      }
     }
   }
 
