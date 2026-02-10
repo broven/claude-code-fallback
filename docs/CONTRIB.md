@@ -33,15 +33,17 @@ http://localhost:8787/admin?token=123456
 
 ### 3. Configuration
 
-For local development, environment variables are loaded from the system. The default `.env` file contains:
+Environment variables are configured in `wrangler.jsonc`:
 
-```
-ADMIN_TOKEN=123456
+```jsonc
+"vars": {
+  "COOLDOWN_DURATION": "300"
+}
 ```
 
-For testing with different tokens:
+For local development, Wrangler uses these values directly. For production, set secrets via:
 ```bash
-ADMIN_TOKEN=test-token npm run dev
+npx wrangler secret put ADMIN_TOKEN
 ```
 
 ### 4. Code Structure
@@ -50,7 +52,9 @@ ADMIN_TOKEN=test-token npm run dev
 - **`src/admin.ts`** — Admin panel UI and API endpoints
 - **`src/config.ts`** — KV storage operations
 - **`src/types.ts`** — TypeScript type definitions
-- **`src/utils/`** — Utility functions (header filtering, provider requests)
+- **`src/utils/provider.ts`** — Provider request logic with model mapping
+- **`src/utils/circuit-breaker.ts`** — Sliding window circuit breaker implementation
+- **`src/utils/headers.ts`** — Header filtering utilities
 
 ### 5. Testing
 
@@ -61,6 +65,16 @@ npx tsc --noEmit
 ```
 
 Verify TypeScript compilation before committing.
+
+#### Running Tests
+
+```bash
+npm test                  # Run all tests
+npm run test:watch        # Watch mode
+npm run test:coverage     # Coverage report
+```
+
+The test suite has **314 tests** with **96.54% coverage**.
 
 #### Manual Testing
 
@@ -94,7 +108,7 @@ This project uses:
 Guidelines:
 - Use async/await for asynchronous operations
 - Prefer const over let; avoid var
-- Add console.log prefixes: `[Proxy]`, `[Config]`, `[Admin]` for debugging
+- Add console.log prefixes: `[Proxy]`, `[Config]`, `[Admin]`, `[CircuitBreaker]` for debugging
 - Keep functions focused and testable
 
 ### 7. Making Changes
@@ -108,6 +122,7 @@ Guidelines:
    ```bash
    npm run dev
    npx tsc --noEmit
+   npm test
    ```
 
 3. Commit with descriptive messages:
@@ -127,6 +142,13 @@ Guidelines:
 1. Define types in `src/types.ts`
 2. Add route handler in `src/index.ts`
 3. Test with curl or Postman
+
+#### Modifying Circuit Breaker Logic
+
+1. Update `src/utils/circuit-breaker.ts`
+2. Update tests in `src/__tests__/circuit-breaker.test.ts`
+3. Test cooldown behavior with different failure counts
+4. Verify sliding window logic and safety valve functionality
 
 #### Modifying Provider Logic
 
@@ -151,6 +173,7 @@ This adds debug logging to:
 - Incoming requests
 - Configuration loading
 - Provider attempts
+- Circuit breaker state changes
 
 View production logs:
 ```bash
@@ -172,6 +195,7 @@ npm run tail -- --status error
 ## Pre-Deployment Checklist
 
 - [ ] Type check: `npx tsc --noEmit`
+- [ ] All tests pass: `npm test`
 - [ ] Tested locally: `npm run dev`
 - [ ] Admin panel works: `/admin?token=123456`
 - [ ] Proxy endpoint tested
@@ -188,6 +212,7 @@ npm run tail -- --status error
 | Type errors after npm install | Run `npm install` again, restart editor |
 | Admin panel shows 401 | Token mismatch; use default `123456` for dev |
 | Timeout errors | Check provider endpoints are responding; increase test timeout |
+| Circuit breaker tests failing | Check `ProviderState` type matches implementation |
 
 ## Questions?
 

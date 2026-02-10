@@ -30,8 +30,21 @@ When a request fails, the proxy:
 
 1. **Tries Anthropic API first** — Your primary requests always go to the official API
 2. **Detects eligible errors** — Only fallback on: 401, 403, 429, 5xx (not on 4xx client errors)
-3. **Iterates through providers** — Tries each configured provider in order
-4. **Returns first success** — Or the last error if all fail
+3. **Checks Circuit Breakers** — Skips providers currently in cooldown to avoid cascading failures
+4. **Iterates through providers** — Tries each available provider in order
+5. **Returns first success** — Or the last error if all fail
+
+### Circuit Breaker (Plan C)
+
+The system implements a **Sliding Window Circuit Breaker** to manage provider health:
+
+- **Tiered Cooldowns**:
+  - < 3 failures: **0s** (No cooldown)
+  - 3-4 failures: **30s**
+  - 5-9 failures: **60s**
+  - 10+ failures: **300s** (configurable max)
+- **Safety Valve**: If all providers are in cooldown, the system automatically tries the "least recently failed" provider to ensure service continuity.
+- **Auto-Recovery**: Successful requests instantly reset failure counts and clear cooldowns.
 
 **Model Mapping**: Configure model name translation (e.g., `claude-3-opus-20240229` → `anthropic/claude-3-opus`) per provider to ensure compatibility.
 

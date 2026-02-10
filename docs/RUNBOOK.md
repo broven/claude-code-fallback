@@ -71,10 +71,13 @@ npm run dev
 # 2. Type check
 npx tsc --noEmit
 
-# 3. Deploy
+# 3. Run tests
+npm test
+
+# 4. Deploy
 npm run deploy
 
-# 4. Monitor logs
+# 5. Monitor logs
 npm run tail
 ```
 
@@ -92,6 +95,7 @@ Log output includes:
 - Incoming requests
 - Anthropic API attempts
 - Fallback provider attempts
+- Circuit breaker state changes
 - Errors and exceptions
 
 ### Filtering Logs
@@ -118,8 +122,21 @@ npm run tail --format pretty
 **Fallback triggered:**
 ```
 [Proxy] Anthropic API failed with status 429
+[CircuitBreaker] Provider openrouter in cooldown until 1715432100000
 [Proxy] Attempting provider: openrouter (Model: claude-3-opus)
 [Proxy] Provider openrouter request successful
+[CircuitBreaker] Reset failures for openrouter
+```
+
+**Circuit breaker activated:**
+```
+[Proxy] Provider openrouter failed with status 500
+[CircuitBreaker] Marked openrouter failed (consecutiveFailures: 3, cooldown: 30s)
+```
+
+**Safety valve triggered:**
+```
+[Proxy] All providers in cooldown, using safety valve: openrouter
 ```
 
 **Configuration error:**
@@ -154,6 +171,28 @@ curl -X POST \
     }
   ]' \
   https://your-worker.workers.dev/admin/config
+```
+
+### View Circuit Breaker State
+
+Provider state is stored in KV under `provider-state:{name}` keys:
+
+```bash
+# List all provider state keys
+npx wrangler kv:key list --binding CONFIG_KV | grep "provider-state"
+
+# View specific provider state
+npx wrangler kv:key get "provider-state:openrouter" --binding CONFIG_KV
+```
+
+Example output:
+```json
+{
+  "consecutiveFailures": 2,
+  "lastFailure": 1715432100000,
+  "lastSuccess": 1715432000000,
+  "cooldownUntil": null
+}
 ```
 
 ### Backup Configuration
@@ -209,6 +248,7 @@ curl -H "Authorization: Bearer YOUR_TOKEN" \
 - No providers configured
 - Invalid provider configuration
 - KV namespace not properly set up
+- All providers in circuit breaker cooldown
 
 **Fix:**
 ```bash
@@ -216,16 +256,19 @@ curl -H "Authorization: Bearer YOUR_TOKEN" \
 curl -H "Authorization: Bearer YOUR_TOKEN" \
   https://your-worker.workers.dev/admin/config
 
-# 2. Verify at least one provider exists
+# 2. Check provider states
+npx wrangler kv:key get "provider-state:openrouter" --binding CONFIG_KV
+
+# 3. Verify at least one provider exists
 # If empty [], add one via admin panel
 
-# 3. Test provider endpoint directly
+# 4. Test provider endpoint directly
 curl -X POST https://provider-url/v1/messages \
   -H "Authorization: Bearer YOUR_KEY" \
   -H "Content-Type: application/json" \
   -d '{"model":"claude-3-opus","messages":[...]}'
 
-# 4. Check logs
+# 5. Check logs
 npm run tail
 ```
 
@@ -298,24 +341,56 @@ curl -w "\nTotal: %{time_total}s\n" \
 - All providers returning errors
 - Invalid API keys
 - Providers rejecting model names
+- All providers in circuit breaker cooldown (safety valve also failed)
 
 **Fix:**
 ```bash
 # 1. Check logs for detailed error
 npm run tail
 
-# 2. Verify API keys in configuration
+# 2. Check provider states for cooldowns
+npx wrangler kv:key list --binding CONFIG_KV | grep "provider-state"
+
+# 3. Verify API keys in configuration
 curl -H "Authorization: Bearer TOKEN" \
   https://your-worker.workers.dev/admin/config
 
-# 3. Test each provider individually
+# 4. Test each provider individually
 for provider in $(cat providers.json | jq -r '.[].name'); do
   echo "Testing $provider..."
   # Make test request to each
 done
 
-# 4. Check if model mapping is correct
+# 5. Check if model mapping is correct
 # Admin panel → Edit provider → Check modelMapping
+
+# 6. Emergency: Clear all provider states to reset cooldowns
+npx wrangler kv:key delete "provider-state:openrouter" --binding CONFIG_KV
+```
+
+### Issue: Circuit breaker stuck (provider never recovers)
+
+**Symptoms:**
+- Provider consistently skipped even though it should be working
+- `cooldownUntil` timestamp in the future
+
+**Causes:**
+- Clock skew between client and server
+- Provider state corrupted
+- Excessive consecutive failures
+
+**Fix:**
+```bash
+# 1. Check current provider state
+npx wrangler kv:key get "provider-state:PROVIDER_NAME" --binding CONFIG_KV
+
+# 2. Delete the state to force reset
+npx wrangler kv:key delete "provider-state:PROVIDER_NAME" --binding CONFIG_KV
+
+# 3. Or update cooldown to expire immediately
+npx wrangler kv:key put "provider-state:PROVIDER_NAME" \
+  '{"consecutiveFailures":0,"lastFailure":null,"lastSuccess":1715432100000,"cooldownUntil":null}' \
+  --binding CONFIG_KV
 ```
 
 ---
@@ -370,6 +445,20 @@ curl -X POST \
 # https://your-worker.workers.dev/admin?token=TOKEN
 ```
 
+### Reset All Circuit Breaker States
+
+If all providers are stuck in cooldown:
+
+```bash
+# List all provider state keys
+npx wrangler kv:key list --binding CONFIG_KV | grep "provider-state"
+
+# Delete each one (repeat for each provider)
+npx wrangler kv:key delete "provider-state:openrouter" --binding CONFIG_KV
+npx wrangler kv:key delete "provider-state:bedrock" --binding CONFIG_KV
+# ... etc
+```
+
 ---
 
 ## Maintenance Tasks
@@ -381,6 +470,7 @@ curl -X POST \
 - [ ] Test admin panel access with current token
 - [ ] Backup current configuration
 - [ ] Check Anthropic API status page
+- [ ] Review circuit breaker states for stuck providers
 
 ### Update Dependencies
 
@@ -406,6 +496,20 @@ Expected ranges:
 - Fallback providers: 0.5-3 seconds
 - Admin panel: <500ms
 
+### Circuit Breaker Tuning
+
+Adjust cooldown settings via admin panel:
+
+1. Access `/admin?token=YOUR_TOKEN`
+2. Go to **Settings** section
+3. Adjust **Max Circuit Breaker Cooldown** (default: 300s)
+
+Tiered cooldowns are calculated automatically:
+- < 3 failures: 0s
+- 3-4 failures: min(30s, maxCooldown)
+- 5-9 failures: min(60s, maxCooldown)
+- 10+ failures: min(300s, maxCooldown)
+
 ---
 
 ## Emergency Contacts
@@ -419,4 +523,5 @@ Expected ranges:
 For issues, questions, or deployment help:
 1. Check this runbook
 2. Review logs: `npm run tail`
-3. Open a GitHub issue with error details
+3. Check provider states in KV
+4. Open a GitHub issue with error details

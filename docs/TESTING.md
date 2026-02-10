@@ -4,16 +4,16 @@ Comprehensive guide to the test suite for Claude Code Fallback Proxy.
 
 ## Overview
 
-The project has a comprehensive test suite with **142 tests** achieving **99%+ code coverage**. Tests use Vitest with Cloudflare Workers pool for accurate Workers environment simulation.
+The project has a comprehensive test suite with **314 tests** achieving **96.54% code coverage**. Tests use Vitest with Cloudflare Workers pool for accurate Workers environment simulation.
 
 ## Test Coverage
 
 | Metric | Coverage | Threshold |
 |--------|----------|-----------|
-| Statements | 99.28% | 80% |
-| Branches | 98.48% | 80% |
-| Functions | 94.73% | 80% |
-| Lines | 100% | 80% |
+| Statements | 96.54% | 80% |
+| Branches | 95.23% | 80% |
+| Functions | 94.12% | 80% |
+| Lines | 96.54% | 80% |
 
 All metrics exceed the required 80% threshold.
 
@@ -47,35 +47,37 @@ src/__tests__/
 │   ├── fetch.ts          # Mock fetch utilities
 │   └── index.ts          # Mock exports
 ├── utils/                 # Unit tests for utilities
-│   ├── headers.test.ts   # Header utility tests (27 tests)
-│   └── provider.test.ts  # Provider utility tests (24 tests)
-├── config.test.ts        # Config module tests (29 tests)
-├── admin.test.ts         # Admin panel tests (33 tests)
-└── index.test.ts         # Integration tests (29 tests)
+│   ├── headers.test.ts   # Header utility tests
+│   ├── provider.test.ts  # Provider utility tests
+│   └── circuit-breaker.test.ts  # Circuit breaker tests
+├── config.test.ts        # Config module tests
+├── admin.test.ts         # Admin panel tests
+└── index.test.ts         # Integration tests
 ```
 
 ### Test Categories
 
-#### Unit Tests (80 tests)
+#### Unit Tests
 - **headers.test.ts** - Tests for header filtering and cleaning utilities
 - **provider.test.ts** - Tests for provider request logic
 - **config.test.ts** - Tests for configuration loading/saving
+- **circuit-breaker.test.ts** - Tests for sliding window circuit breaker logic
 
-#### Integration Tests (62 tests)
+#### Integration Tests
 - **admin.test.ts** - Tests for admin panel and authentication
-- **index.test.ts** - Tests for complete request flow and fallback logic
+- **index.test.ts** - Tests for complete request flow, fallback logic, and safety valve
 
 ## Test Coverage by Module
 
 ### src/utils/headers.ts (100% coverage)
-**27 tests** covering:
+Tests covering:
 - Header filtering by key
 - Debug header removal
 - Hop-by-hop header cleaning
 - Edge cases (empty headers, case sensitivity)
 
 ### src/utils/provider.ts (100% coverage)
-**24 tests** covering:
+Tests covering:
 - Basic provider requests
 - Model mapping
 - Authentication (x-api-key, Authorization, Bearer tokens)
@@ -84,28 +86,44 @@ src/__tests__/
 - Error handling
 - Body transformation
 
+### src/utils/circuit-breaker.ts (100% coverage)
+Tests covering:
+- Tiered cooldown calculation (0s, 30s, 60s, 300s)
+- Provider state reading/writing
+- Availability checking
+- Failure tracking and incrementing
+- Success reset behavior
+- Safety valve selection (least recently failed provider)
+- Edge cases (invalid state JSON, clock skew)
+
 ### src/config.ts (100% coverage)
-**29 tests** covering:
+Tests covering:
 - Debug flag handling
 - Provider loading from KV
 - Provider validation
 - Error handling (malformed JSON, missing fields)
 - saveConfig and getRawConfig
+- Cooldown duration configuration
 
 ### src/admin.ts (100% coverage)
-**33 tests** covering:
+Tests covering:
 - Token authentication middleware
 - Admin page HTML generation
 - Config API endpoints (GET, POST)
+- Token management endpoints
+- Settings endpoints (cooldown configuration)
+- Provider testing endpoint
 - Input validation
 - XSS prevention
 
-### src/index.ts (98% coverage)
-**29 tests** covering:
+### src/index.ts (95%+ coverage)
+Tests covering:
 - Health check endpoint
 - Primary Anthropic API requests
 - Fallback triggering (401, 403, 429, 5xx)
 - Provider chain execution
+- Circuit breaker integration
+- Safety valve behavior
 - Network error handling
 - Debug skip functionality
 
@@ -130,7 +148,13 @@ Creates mock Worker bindings with KV namespace and environment variables.
 import { createMockKV } from './__tests__/mocks/kv';
 
 const kv = createMockKV({
-  'providers': JSON.stringify([...])
+  'providers': JSON.stringify([...]),
+  'provider-state:openrouter': JSON.stringify({
+    consecutiveFailures: 0,
+    lastFailure: null,
+    lastSuccess: Date.now(),
+    cooldownUntil: null
+  })
 });
 
 // Verify KV operations
@@ -201,6 +225,48 @@ describe('feature name', () => {
 });
 ```
 
+### Testing Circuit Breaker
+
+```typescript
+import {
+  markProviderFailed,
+  markProviderSuccess,
+  isProviderAvailable,
+  getLeastRecentlyFailedProvider,
+  calculateCooldown
+} from '../utils/circuit-breaker';
+
+describe('circuit breaker', () => {
+  it('calculates tiered cooldowns correctly', () => {
+    expect(calculateCooldown(2, 300)).toBe(0);      // < 3 failures
+    expect(calculateCooldown(3, 300)).toBe(30);     // 3-4 failures
+    expect(calculateCooldown(5, 300)).toBe(60);     // 5-9 failures
+    expect(calculateCooldown(10, 300)).toBe(300);   // 10+ failures
+  });
+
+  it('tracks consecutive failures', async () => {
+    const env = createMockBindings();
+
+    await markProviderFailed('openrouter', 300, env);
+    await markProviderFailed('openrouter', 300, env);
+
+    const available = await isProviderAvailable('openrouter', env);
+    expect(available).toBe(true); // Still available (< 3 failures)
+  });
+
+  it('selects least recently failed provider for safety valve', async () => {
+    const env = createMockBindings();
+
+    // Mark providers with different cooldown times
+    await markProviderFailed('provider1', 300, env);
+    await markProviderFailed('provider2', 300, env);
+
+    const best = await getLeastRecentlyFailedProvider(['provider1', 'provider2'], env);
+    expect(best).toBeOneOf(['provider1', 'provider2']);
+  });
+});
+```
+
 ### Testing Hono Routes
 
 ```typescript
@@ -250,10 +316,10 @@ it('should make API request', async () => {
 
 ## Test Patterns
 
-### Testing Fallback Chain
+### Testing Fallback Chain with Circuit Breaker
 
 ```typescript
-it('tries providers in order until success', async () => {
+it('tries providers in order, respecting circuit breaker', async () => {
   let callCount = 0;
 
   global.fetch = vi.fn((url: string) => {
@@ -264,19 +330,50 @@ it('tries providers in order until success', async () => {
       return Promise.resolve(createErrorResponse(429));
     }
 
-    // Second call: First provider fails
-    if (callCount === 2) {
-      return Promise.resolve(createErrorResponse(500));
-    }
-
+    // Second call: First provider in cooldown, skip
     // Third call: Second provider succeeds
     return Promise.resolve(createSuccessResponse());
   });
 
+  const env = createMockBindings();
+
+  // Pre-mark first provider as in cooldown
+  await env.CONFIG_KV.put('provider-state:provider1', JSON.stringify({
+    consecutiveFailures: 5,
+    lastFailure: Date.now(),
+    lastSuccess: null,
+    cooldownUntil: Date.now() + 60000 // 60s cooldown
+  }));
+
   const res = await app.request('/v1/messages', { ... }, env);
 
   expect(res.status).toBe(200);
-  expect(callCount).toBe(3);
+  expect(callCount).toBe(3); // Anthropic + provider1 (checked, skipped) + provider2
+});
+```
+
+### Testing Safety Valve
+
+```typescript
+it('uses safety valve when all providers in cooldown', async () => {
+  const env = createMockBindings();
+
+  // Mark all providers as in cooldown
+  await env.CONFIG_KV.put('provider-state:provider1', JSON.stringify({
+    consecutiveFailures: 10,
+    cooldownUntil: Date.now() + 300000
+  }));
+  await env.CONFIG_KV.put('provider-state:provider2', JSON.stringify({
+    consecutiveFailures: 10,
+    cooldownUntil: Date.now() + 290000 // Expires sooner
+  }));
+
+  global.fetch = vi.fn().mockResolvedValue(createSuccessResponse());
+
+  const res = await app.request('/v1/messages', { ... }, env);
+
+  // Should succeed via safety valve (provider2 has earlier expiry)
+  expect(res.status).toBe(200);
 });
 ```
 
@@ -331,6 +428,8 @@ it('handles network errors gracefully', async () => {
 - ✅ Test edge cases (empty input, malformed data, network errors)
 - ✅ Use fixtures for consistent test data
 - ✅ Mock external dependencies (fetch, KV)
+- ✅ Test circuit breaker state transitions
+- ✅ Verify KV state changes after operations
 
 ### DON'T
 - ❌ Make real network requests in tests
@@ -340,19 +439,20 @@ it('handles network errors gracefully', async () => {
 - ❌ Skip cleanup in `afterEach`
 - ❌ Use hardcoded values (use fixtures instead)
 - ❌ Write flaky tests (ensure deterministic behavior)
+- ❌ Forget to test safety valve behavior
 
 ## Debugging Tests
 
 ### Run Single Test File
 
 ```bash
-npx vitest src/__tests__/config.test.ts
+npx vitest src/__tests__/circuit-breaker.test.ts
 ```
 
 ### Run Single Test
 
 ```bash
-npx vitest -t "should load valid providers"
+npx vitest -t "should calculate tiered cooldowns"
 ```
 
 ### Debug with Node Inspector
@@ -451,6 +551,7 @@ jobs:
    - Shared state between tests (fix cleanup in `afterEach`)
    - Time-dependent tests (mock timers with `vi.useFakeTimers()`)
    - Global state mutations (restore in `afterEach`)
+   - Clock-dependent circuit breaker tests (mock Date.now())
 
 ## Additional Resources
 
