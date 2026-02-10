@@ -98,6 +98,8 @@ With `DEBUG=true`:
   model: 'claude-3-opus'
 }
 [Proxy] Forwarding request to Primary Anthropic API (Model: claude-3-opus)
+[CircuitBreaker] Provider openrouter in cooldown until 1715432100000
+[Proxy] Attempting provider: openrouter (Model: claude-3-opus)
 ```
 
 Without debug (default):
@@ -121,10 +123,10 @@ These are configured in `wrangler.jsonc`, not as environment variables. Listed h
 | Property | Value |
 |----------|-------|
 | **Type** | KV Namespace binding |
-| **Stores** | Provider configurations (JSON array) |
-| **Key** | `providers` |
+| **Stores** | Provider configurations and circuit breaker state |
+| **Keys** | `providers`, `provider-state:{name}`, `tokens`, `cooldown`, `anthropic-disabled` |
 
-Cloudflare KV namespace for persistent provider configuration storage.
+Cloudflare KV namespace for persistent provider configuration and circuit breaker state storage.
 
 **Setup:**
 ```bash
@@ -146,9 +148,10 @@ npx wrangler kv:namespace create CONFIG
 **Access in Code:**
 ```typescript
 const config = await env.CONFIG_KV.get('providers');
+const state = await env.CONFIG_KV.get('provider-state:openrouter');
 ```
 
-**Value Format:**
+**Provider Config Format (`providers` key):**
 ```json
 [
   {
@@ -169,30 +172,78 @@ const config = await env.CONFIG_KV.get('providers');
 ]
 ```
 
+**Provider State Format (`provider-state:{name}` keys):**
+```json
+{
+  "consecutiveFailures": 3,
+  "lastFailure": 1715432100000,
+  "lastSuccess": 1715432000000,
+  "cooldownUntil": 1715432130000
+}
+```
+
+---
+
+### COOLDOWN_DURATION
+
+| Property | Value |
+|----------|-------|
+| **Required** | No |
+| **Type** | Number (seconds) |
+| **Default** | `300` |
+| **Environment** | All |
+
+Maximum cooldown duration for the circuit breaker after repeated provider failures. The actual cooldown is tiered based on consecutive failures:
+
+- **< 3 failures**: 0s (no cooldown)
+- **3-4 failures**: min(30s, maxCooldown)
+- **5-9 failures**: min(60s, maxCooldown)
+- **10+ failures**: min(300s, maxCooldown)
+
+**Setup:**
+
+Via `wrangler.jsonc`:
+```jsonc
+{
+  "vars": {
+    "COOLDOWN_DURATION": "300"
+  }
+}
+```
+
+Via Cloudflare Dashboard:
+- Workers & Pages → Your Worker → Settings → Variables → Add variable
+- Name: `COOLDOWN_DURATION`, Value: `300`
+
+**Usage:**
+Adjust this value based on your provider reliability:
+- Lower values (60-120s): Faster recovery for intermittent issues
+- Higher values (300-600s): Better protection against sustained outages
+
 ---
 
 ## Local Development Variables
 
-For local development with `npm run dev`, you can set variables via environment:
+For local development with `npm run dev`, variables are loaded from `wrangler.jsonc`:
 
 ```bash
-# Method 1: Inline
+# Method 1: Inline (for DEBUG only)
 DEBUG=true npm run dev
 
-# Method 2: .env file (Wrangler loads automatically)
-# Create .env:
-# DEBUG=true
-# ADMIN_TOKEN=dev-token-123
+# Method 2: Modify wrangler.jsonc
+# Edit the "vars" section directly
 
 npm run dev
 ```
 
-**Default .env:**
-```
-ADMIN_TOKEN=123456
+**Default Configuration (wrangler.jsonc):**
+```jsonc
+"vars": {
+  "COOLDOWN_DURATION": "300"
+}
 ```
 
-This dev token is used for local testing. Change `ADMIN_TOKEN` for production.
+For secrets like `ADMIN_TOKEN`, use `npx wrangler secret put` for production, or the default dev token for local testing.
 
 ---
 
@@ -204,9 +255,10 @@ All variables use TypeScript types in `src/types.ts`:
 
 ```typescript
 export interface Bindings {
-  DEBUG: string;          // "true" or "false"
-  ADMIN_TOKEN: string;    // Secret string
-  CONFIG_KV: KVNamespace; // KV binding
+  DEBUG: string;              // "true" or "false"
+  ADMIN_TOKEN: string;        // Secret string
+  CONFIG_KV: KVNamespace;     // KV binding
+  COOLDOWN_DURATION?: string; // Optional, default "300"
 }
 ```
 
@@ -288,6 +340,8 @@ echo $NEW_TOKEN | npx wrangler secret put ADMIN_TOKEN
 | Empty provider list | KV not initialized | Access `/admin` and add provider |
 | Excess logging in production | DEBUG=true | Set `DEBUG=false` in vars |
 | Can't access KV in local dev | KV binding missing | Ensure `kv_namespaces` in wrangler.jsonc |
+| Provider stuck in cooldown | Circuit breaker activated | Wait for cooldown or clear `provider-state:{name}` key |
+| All providers unavailable | All in cooldown | Check logs; safety valve will try least recently failed |
 
 ---
 
