@@ -22,6 +22,7 @@ import {
   markProviderSuccess,
   getLeastRecentlyFailedProvider,
 } from "./utils/circuit-breaker";
+import { createLogger, generateRequestId } from "./utils/logger";
 
 const app = new Hono<{ Bindings: Bindings }>();
 
@@ -47,13 +48,24 @@ app.post("/admin/anthropic-status", authMiddleware, postAnthropicStatus);
 
 // Main proxy endpoint
 app.post("/v1/messages", async (c) => {
-  const config = await loadConfig(c.env);
-  const body = await c.req.json();
+  const startTime = Date.now();
+
+  // Generate or extract request ID for tracing
   const headers = c.req.header();
+  const requestId = headers["x-request-id"] || generateRequestId();
+
+  const config = await loadConfig(c.env);
+  const logger = createLogger(requestId, config.debug);
+
+  const body = await c.req.json();
   const skipAnthropic = headers["x-ccf-debug-skip-anthropic"] === "1";
-  console.log(`{
-    "model": ${body.model}
-    }`);
+
+  logger.info('request.start', 'Incoming proxy request', {
+    model: body.model,
+    stream: body.stream,
+    skipAnthropic,
+  });
+
   // Get cooldown from config (defaults to env or 300s)
   const cooldownDuration = config.cooldownDuration;
 
@@ -61,7 +73,7 @@ app.post("/v1/messages", async (c) => {
   if (config.allowedTokens && config.allowedTokens.length > 0) {
     const authKey = headers["x-ccf-api-key"];
     if (!authKey || !config.allowedTokens.includes(authKey)) {
-      console.log("[Proxy] Unauthorized request - missing or invalid API key");
+      logger.warn('auth.failure', 'Unauthorized request - missing or invalid API key');
       return c.json(
         {
           error: {
@@ -74,21 +86,15 @@ app.post("/v1/messages", async (c) => {
     }
   }
 
-  if (config.debug) {
-    console.log("[Proxy] Incoming Request", {
-      method: "POST",
-      url: c.req.url,
-      model: body.model,
-    });
-  }
-
   // --- Attempt 1: Primary Anthropic API ---
   let lastErrorResponse: Response | null = null;
   const anthropicName = "anthropic-primary";
   const cooldownSkipped: string[] = [];
 
   if (config.anthropicPrimaryDisabled) {
-    console.log("[Proxy] Skipping anthropic-primary (disabled by admin)");
+    logger.info('provider.attempt', 'Skipping anthropic-primary (disabled by admin)', {
+      provider: anthropicName,
+    });
   }
 
   if (!skipAnthropic && !config.anthropicPrimaryDisabled) {
@@ -96,13 +102,17 @@ app.post("/v1/messages", async (c) => {
     const isAvailable = await isProviderAvailable(anthropicName, c.env);
 
     if (!isAvailable) {
-      console.log(`[Proxy] Skipping ${anthropicName} (Circuit Breaker active)`);
+      logger.info('circuit_breaker.skip', 'Provider in cooldown', {
+        provider: anthropicName,
+      });
       cooldownSkipped.push(anthropicName);
     } else {
       try {
-        console.log(
-          `[Proxy] Forwarding request to Primary Anthropic API (Model: ${body.model})`,
-        );
+        const attemptStart = Date.now();
+        logger.info('provider.attempt', 'Forwarding request to Anthropic API', {
+          provider: anthropicName,
+          model: body.model,
+        });
 
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), 30000);
@@ -116,13 +126,21 @@ app.post("/v1/messages", async (c) => {
         });
 
         clearTimeout(timeoutId);
+        const latency = Date.now() - attemptStart;
 
         if (response.ok) {
-          console.log("[Proxy] Anthropic API request successful");
+          logger.info('provider.success', 'Anthropic API request successful', {
+            provider: anthropicName,
+            model: body.model,
+            status: response.status,
+            latency,
+          });
           await markProviderSuccess(anthropicName, c.env);
+          const responseHeaders = cleanHeaders(response.headers);
+          responseHeaders.set('x-request-id', requestId);
           return new Response(response.body, {
             status: response.status,
-            headers: cleanHeaders(response.headers),
+            headers: responseHeaders,
           });
         }
 
@@ -133,7 +151,12 @@ app.post("/v1/messages", async (c) => {
           headers: cleanHeaders(response.headers),
         });
 
-        console.log(`[Proxy] Anthropic API failed with status ${status}`);
+        logger.warn('provider.failure', 'Anthropic API request failed', {
+          provider: anthropicName,
+          model: body.model,
+          status,
+          latency,
+        });
 
         // Only fallback on specific error codes: 401, 403, 429, 5xx
         if (
@@ -142,19 +165,28 @@ app.post("/v1/messages", async (c) => {
           status !== 429 &&
           status < 500
         ) {
-          console.log(
-            `[Proxy] Error ${status} is not eligible for fallback. Returning error.`,
-          );
+          logger.info('request.complete', 'Error not eligible for fallback', {
+            provider: anthropicName,
+            model: body.model,
+            status,
+            latency: Date.now() - startTime,
+          });
           return lastErrorResponse;
         }
 
         // Mark failed
         await markProviderFailed(anthropicName, cooldownDuration, c.env);
+        logger.info('circuit_breaker.cooldown', 'Provider marked as failed', {
+          provider: anthropicName,
+        });
       } catch (error: any) {
-        console.error(
-          "[Proxy] Network error or timeout contacting Anthropic:",
-          error.message,
-        );
+        const latency = Date.now() - startTime;
+        logger.error('provider.timeout', 'Network error or timeout contacting Anthropic', {
+          provider: anthropicName,
+          model: body.model,
+          error: error.message,
+          latency,
+        });
         await markProviderFailed(anthropicName, cooldownDuration, c.env);
       }
     }
@@ -162,7 +194,7 @@ app.post("/v1/messages", async (c) => {
 
   // --- Attempt 2+: Fallback Providers ---
   if (config.providers.length === 0) {
-    console.log("[Proxy] No fallback providers configured.");
+    logger.warn('request.error', 'No fallback providers configured');
     if (lastErrorResponse) {
       return lastErrorResponse;
     }
@@ -179,20 +211,28 @@ app.post("/v1/messages", async (c) => {
 
   for (const provider of config.providers) {
     if (provider.disabled) {
-      console.log(`[Proxy] Skipping provider ${provider.name} (disabled)`);
+      logger.info('provider.attempt', 'Skipping disabled provider', {
+        provider: provider.name,
+      });
       continue;
     }
 
     const isAvailable = await isProviderAvailable(provider.name, c.env);
     if (!isAvailable) {
-      console.log(
-        `[Proxy] Skipping provider ${provider.name} (Circuit Breaker active)`,
-      );
+      logger.info('circuit_breaker.skip', 'Provider in cooldown', {
+        provider: provider.name,
+      });
       cooldownSkipped.push(provider.name);
       continue;
     }
 
+    const attemptStart = Date.now();
     try {
+      logger.info('provider.attempt', 'Trying fallback provider', {
+        provider: provider.name,
+        model: body.model,
+      });
+
       const response = await tryProvider(
         provider,
         body,
@@ -200,27 +240,33 @@ app.post("/v1/messages", async (c) => {
         config,
       );
 
+      const latency = Date.now() - attemptStart;
+
       if (response.ok) {
-        console.log(`{
-          status: ${response.status},
-          provider: ${provider.name},
-          model: ${body.model}
-        }`);
+        logger.info('provider.success', 'Fallback provider request successful', {
+          provider: provider.name,
+          model: body.model,
+          status: response.status,
+          latency,
+        });
         await markProviderSuccess(provider.name, c.env);
+        const responseHeaders = cleanHeaders(response.headers);
+        responseHeaders.set('x-request-id', requestId);
         return new Response(response.body, {
           status: response.status,
-          headers: cleanHeaders(response.headers),
+          headers: responseHeaders,
         });
       }
 
       const status = response.status;
       const errorText = await response.text();
-      console.log(`{
-        text: ${errorText},
-        status: ${response.status},
-        provider: ${provider.name},
-        model: ${body.model}
-      }`);
+      logger.warn('provider.failure', 'Fallback provider request failed', {
+        provider: provider.name,
+        model: body.model,
+        status,
+        latency,
+        error: errorText.substring(0, 200), // Limit error text length
+      });
       await markProviderFailed(provider.name, cooldownDuration, c.env);
 
       lastErrorResponse = new Response(errorText, {
@@ -228,12 +274,13 @@ app.post("/v1/messages", async (c) => {
         headers: cleanHeaders(response.headers),
       });
     } catch (error: any) {
-      console.log(`{
-        test: ${error.message},
-        status: JSError,
-        provider: ${provider.name},
-        model: ${body.model}
-      }`);
+      const latency = Date.now() - attemptStart;
+      logger.error('provider.timeout', 'Fallback provider error', {
+        provider: provider.name,
+        model: body.model,
+        error: error.message,
+        latency,
+      });
       await markProviderFailed(provider.name, cooldownDuration, c.env);
     }
   }
@@ -242,7 +289,11 @@ app.post("/v1/messages", async (c) => {
   if (cooldownSkipped.length > 0) {
     const safeName = await getLeastRecentlyFailedProvider(cooldownSkipped, c.env);
     if (safeName) {
-      console.log(`[Proxy] Safety valve: trying ${safeName} (least recently failed)`);
+      logger.info('safety_valve.triggered', 'All providers in cooldown, trying least recently failed', {
+        provider: safeName,
+        skippedCount: cooldownSkipped.length,
+      });
+      const attemptStart = Date.now();
       try {
         if (safeName === anthropicName) {
           const controller = new AbortController();
@@ -257,17 +308,31 @@ app.post("/v1/messages", async (c) => {
           });
 
           clearTimeout(timeoutId);
+          const latency = Date.now() - attemptStart;
 
           if (response.ok) {
-            console.log("[Proxy] Safety valve: Anthropic API request successful");
+            logger.info('provider.success', 'Safety valve request successful', {
+              provider: anthropicName,
+              model: body.model,
+              status: response.status,
+              latency,
+            });
             await markProviderSuccess(anthropicName, c.env);
+            const responseHeaders = cleanHeaders(response.headers);
+            responseHeaders.set('x-request-id', requestId);
             return new Response(response.body, {
               status: response.status,
-              headers: cleanHeaders(response.headers),
+              headers: responseHeaders,
             });
           }
 
           const errorBody = await response.text();
+          logger.warn('provider.failure', 'Safety valve request failed', {
+            provider: anthropicName,
+            model: body.model,
+            status: response.status,
+            latency,
+          });
           await markProviderFailed(anthropicName, cooldownDuration, c.env);
           lastErrorResponse = new Response(errorBody, {
             status: response.status,
@@ -283,16 +348,31 @@ app.post("/v1/messages", async (c) => {
               config,
             );
 
+            const latency = Date.now() - attemptStart;
+
             if (response.ok) {
-              console.log(`[Proxy] Safety valve: ${safeName} request successful`);
+              logger.info('provider.success', 'Safety valve request successful', {
+                provider: safeName,
+                model: body.model,
+                status: response.status,
+                latency,
+              });
               await markProviderSuccess(safeName, c.env);
+              const responseHeaders = cleanHeaders(response.headers);
+              responseHeaders.set('x-request-id', requestId);
               return new Response(response.body, {
                 status: response.status,
-                headers: cleanHeaders(response.headers),
+                headers: responseHeaders,
               });
             }
 
             const errorText = await response.text();
+            logger.warn('provider.failure', 'Safety valve request failed', {
+              provider: safeName,
+              model: body.model,
+              status: response.status,
+              latency,
+            });
             await markProviderFailed(safeName, cooldownDuration, c.env);
             lastErrorResponse = new Response(errorText, {
               status: response.status,
@@ -301,16 +381,30 @@ app.post("/v1/messages", async (c) => {
           }
         }
       } catch (error: any) {
-        console.error(`[Proxy] Safety valve: ${safeName} failed:`, error.message);
+        const latency = Date.now() - attemptStart;
+        logger.error('provider.timeout', 'Safety valve error', {
+          provider: safeName,
+          model: body.model,
+          error: error.message,
+          latency,
+        });
         await markProviderFailed(safeName, cooldownDuration, c.env);
       }
     }
   }
 
   if (lastErrorResponse) {
+    logger.error('request.error', 'All providers failed, returning last error', {
+      model: body.model,
+      latency: Date.now() - startTime,
+    });
     return lastErrorResponse;
   }
 
+  logger.error('request.error', 'All API providers exhausted', {
+    model: body.model,
+    latency: Date.now() - startTime,
+  });
   return c.json(
     {
       error: {
