@@ -85,12 +85,7 @@ export async function tryProvider(
     } else {
       headers[headerName] = apiKey;
     }
-    if (config?.debug) {
-      console.log(`{
-        "model": "${body.model}",
-        "providerMappedModel": ${requestBody.model}
-      }`);
-    }
+    // Model mapping is now logged at the request level in index.ts
     const response = await fetch(baseUrl, {
       method: 'POST',
       headers,

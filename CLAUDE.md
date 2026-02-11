@@ -96,6 +96,24 @@ Features:
 - **Circuit Breaker Settings**: Configure max cooldown duration
 - **Token Authentication**: Secured with `ADMIN_TOKEN`
 
+## Observability
+
+The proxy outputs **structured JSON logs** with Request ID tracking for full observability. See [docs/observability.md](./docs/observability.md) for details.
+
+**Quick Start:**
+```bash
+# View real-time logs
+npm run tail
+
+# Logs are automatically collected in: Dashboard → Observability
+```
+
+Every log includes:
+- Unique `requestId` for tracing requests end-to-end
+- `event` type (e.g., `provider.success`, `provider.failure`)
+- Performance metrics (`latency`, `status`)
+- Provider and model information
+
 ## Deployment Workflow
 
 1. Create KV namespace:
