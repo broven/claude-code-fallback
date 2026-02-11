@@ -23,6 +23,7 @@ import {
   getLeastRecentlyFailedProvider,
 } from "./utils/circuit-breaker";
 import { createLogger, generateRequestId } from "./utils/logger";
+import { buildCurlCommand } from "./utils/curl";
 
 const app = new Hono<{ Bindings: Bindings }>();
 
@@ -59,6 +60,12 @@ app.post("/v1/messages", async (c) => {
 
   const body = await c.req.json();
   const skipAnthropic = headers["x-ccf-debug-skip-anthropic"] === "1";
+  const originalUrl = c.req.url;
+
+  const logDebugCurl = () => {
+    const curl = buildCurlCommand(originalUrl, headers, body);
+    logger.error('request.debug_curl', 'Reproducible curl command for failed request', { curl });
+  };
 
   logger.info('request.start', 'Incoming proxy request', {
     model: body.model,
@@ -196,6 +203,7 @@ app.post("/v1/messages", async (c) => {
   // --- Attempt 2+: Fallback Providers ---
   if (config.providers.length === 0) {
     logger.warn('request.error', 'No fallback providers configured');
+    logDebugCurl();
     if (lastErrorResponse) {
       return lastErrorResponse;
     }
@@ -402,6 +410,7 @@ app.post("/v1/messages", async (c) => {
       model: body.model,
       latency: Date.now() - startTime,
     });
+    logDebugCurl();
     return lastErrorResponse;
   }
 
@@ -409,6 +418,7 @@ app.post("/v1/messages", async (c) => {
     model: body.model,
     latency: Date.now() - startTime,
   });
+  logDebugCurl();
   return c.json(
     {
       error: {

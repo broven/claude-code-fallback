@@ -18,7 +18,8 @@ export type LogEvent =
   | 'circuit_breaker.reset'
   | 'safety_valve.triggered'
   | 'auth.failure'
-  | 'config.load';
+  | 'config.load'
+  | 'request.debug_curl';
 
 interface BaseLogData {
   requestId?: string;
