@@ -768,9 +768,9 @@ export async function adminPage(c: Context<{ Bindings: Bindings }>) {
 
     async function persistTokens() {
       try {
-        var res = await fetch('/admin/tokens?token=' + TOKEN, {
+        var res = await fetch('/admin/tokens', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + TOKEN },
           body: JSON.stringify(tokenConfigs)
         });
         if (res.ok) {
@@ -1017,9 +1017,9 @@ export async function adminPage(c: Context<{ Bindings: Bindings }>) {
       btn.disabled = true;
 
       try {
-        var res = await fetch('/admin/test-provider?token=' + TOKEN, {
+        var res = await fetch('/admin/test-provider', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + TOKEN },
           body: JSON.stringify(provider)
         });
         var data = await res.json();
@@ -1082,9 +1082,9 @@ export async function adminPage(c: Context<{ Bindings: Bindings }>) {
 
     async function persistProviders() {
       try {
-        var res = await fetch('/admin/config?token=' + TOKEN, {
+        var res = await fetch('/admin/config', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + TOKEN },
           body: JSON.stringify(providers)
         });
         if (res.ok) {
@@ -1113,9 +1113,9 @@ export async function adminPage(c: Context<{ Bindings: Bindings }>) {
     async function toggleAnthropicPrimary(enabled) {
       var disabled = !enabled;
       try {
-        var res = await fetch('/admin/anthropic-status?token=' + TOKEN, {
+        var res = await fetch('/admin/anthropic-status', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + TOKEN },
           body: JSON.stringify({ disabled: disabled })
         });
         if (res.ok) {
@@ -1264,9 +1264,9 @@ export async function adminPage(c: Context<{ Bindings: Bindings }>) {
     async function saveSettings() {
       try {
         var cooldown = parseInt(document.getElementById('cooldownInput').value, 10);
-        var res = await fetch('/admin/settings?token=' + TOKEN, {
+        var res = await fetch('/admin/settings', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + TOKEN },
           body: JSON.stringify({ cooldownDuration: cooldown })
         });
         if (res.ok) {

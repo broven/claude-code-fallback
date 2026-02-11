@@ -397,6 +397,17 @@ describe("adminPage token persistence", () => {
     expect(html).toContain("localStorage.setItem");
     expect(html).toContain("admin_token");
   });
+
+  it("uses Authorization header for API calls instead of query params", async () => {
+    const env = createMockBindings({ adminToken: "valid-token" });
+    const request = createRequest("/admin", { token: "valid-token" });
+
+    const response = await app.fetch(request, env);
+    const html = await response.text();
+
+    // Should use Authorization header in fetch calls
+    expect(html).toContain("'Authorization': 'Bearer ' + TOKEN");
+  });
 });
 
 describe("getConfig", () => {
