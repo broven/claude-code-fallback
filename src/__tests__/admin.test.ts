@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { Hono } from "hono";
 import {
   authMiddleware,
+  loginPage,
   adminPage,
   getConfig,
   postConfig,
@@ -24,6 +25,7 @@ import {
 // Helper to create a Hono app with routes for testing
 function createTestApp() {
   const app = new Hono<{ Bindings: Bindings }>();
+  app.get("/admin/login", loginPage);
   app.get("/admin", authMiddleware, adminPage);
   app.get("/admin/config", authMiddleware, getConfig);
   app.post("/admin/config", authMiddleware, postConfig);
@@ -146,6 +148,28 @@ describe("authMiddleware", () => {
 
       expect(response.status).toBe(200);
     });
+  });
+});
+
+describe("loginPage", () => {
+  let app: Hono<{ Bindings: Bindings }>;
+
+  beforeEach(() => {
+    app = createTestApp();
+  });
+
+  it("returns HTML login page", async () => {
+    const env = createMockBindings({ adminToken: "valid-token" });
+    const request = createRequest("/admin/login");
+
+    const response = await app.fetch(request, env);
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-type")).toContain("text/html");
+    const html = await response.text();
+    expect(html).toContain("Login");
+    expect(html).toContain('id="tokenInput"');
+    expect(html).toContain("localStorage");
   });
 });
 

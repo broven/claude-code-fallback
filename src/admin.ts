@@ -36,6 +36,116 @@ export async function authMiddleware(
 }
 
 /**
+ * Login page - shown when user hasn't provided a token
+ */
+export async function loginPage(c: Context<{ Bindings: Bindings }>) {
+  const html = `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Claude Code Fallback - Login</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #f5f5f5;
+      color: #333;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      min-height: 100vh;
+    }
+    .login-container {
+      background: white;
+      border-radius: 12px;
+      padding: 40px;
+      box-shadow: 0 2px 12px rgba(0,0,0,0.1);
+      width: 100%;
+      max-width: 400px;
+    }
+    h1 { color: #333; margin-bottom: 8px; font-size: 24px; }
+    .subtitle { color: #666; margin-bottom: 24px; font-size: 14px; }
+    .form-group { margin-bottom: 20px; }
+    label { display: block; font-weight: 600; margin-bottom: 6px; font-size: 14px; }
+    input[type="password"] {
+      width: 100%;
+      padding: 10px 14px;
+      border: 1px solid #ddd;
+      border-radius: 6px;
+      font-size: 14px;
+      outline: none;
+      transition: border-color 0.2s;
+    }
+    input[type="password"]:focus { border-color: #4a90d9; }
+    .btn-login {
+      width: 100%;
+      padding: 12px;
+      background: #4a90d9;
+      color: white;
+      border: none;
+      border-radius: 6px;
+      font-size: 15px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+    .btn-login:hover { background: #357abd; }
+    .error-msg {
+      color: #e74c3c;
+      font-size: 13px;
+      margin-top: 12px;
+      display: none;
+    }
+  </style>
+</head>
+<body>
+  <div class="login-container">
+    <h1>Claude Code Fallback</h1>
+    <p class="subtitle">Enter your admin token to continue</p>
+    <form id="loginForm">
+      <div class="form-group">
+        <label for="tokenInput">Admin Token</label>
+        <input type="password" id="tokenInput" placeholder="Enter admin token" autocomplete="off" />
+      </div>
+      <button type="submit" class="btn-login">Login</button>
+      <p class="error-msg" id="errorMsg">Invalid token. Please try again.</p>
+    </form>
+  </div>
+  <script>
+    // Check if token is saved in localStorage
+    (function() {
+      var saved = localStorage.getItem('admin_token');
+      if (saved) {
+        window.location.href = '/admin?token=' + encodeURIComponent(saved);
+      }
+    })();
+
+    document.getElementById('loginForm').addEventListener('submit', async function(e) {
+      e.preventDefault();
+      var token = document.getElementById('tokenInput').value.trim();
+      if (!token) return;
+
+      // Validate token by calling an admin endpoint
+      try {
+        var res = await fetch('/admin/config?token=' + encodeURIComponent(token));
+        if (res.ok) {
+          localStorage.setItem('admin_token', token);
+          window.location.href = '/admin?token=' + encodeURIComponent(token);
+        } else {
+          document.getElementById('errorMsg').style.display = 'block';
+        }
+      } catch (err) {
+        document.getElementById('errorMsg').style.display = 'block';
+      }
+    });
+  </script>
+</body>
+</html>`;
+  return c.html(html);
+}
+
+/**
  * Admin page HTML
  */
 export async function adminPage(c: Context<{ Bindings: Bindings }>) {
