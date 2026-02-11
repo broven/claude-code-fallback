@@ -136,7 +136,8 @@ app.post("/v1/messages", async (c) => {
             latency,
           });
           await markProviderSuccess(anthropicName, c.env);
-          const responseHeaders = cleanHeaders(response.headers);
+          const cleanedHeaders = cleanHeaders(response.headers);
+          const responseHeaders = new Headers(cleanedHeaders);
           responseHeaders.set('x-request-id', requestId);
           return new Response(response.body, {
             status: response.status,
@@ -250,7 +251,8 @@ app.post("/v1/messages", async (c) => {
           latency,
         });
         await markProviderSuccess(provider.name, c.env);
-        const responseHeaders = cleanHeaders(response.headers);
+        const cleanedHeaders = cleanHeaders(response.headers);
+        const responseHeaders = new Headers(cleanedHeaders);
         responseHeaders.set('x-request-id', requestId);
         return new Response(response.body, {
           status: response.status,
@@ -318,7 +320,8 @@ app.post("/v1/messages", async (c) => {
               latency,
             });
             await markProviderSuccess(anthropicName, c.env);
-            const responseHeaders = cleanHeaders(response.headers);
+            const cleanedHeaders = cleanHeaders(response.headers);
+            const responseHeaders = new Headers(cleanedHeaders);
             responseHeaders.set('x-request-id', requestId);
             return new Response(response.body, {
               status: response.status,
@@ -358,7 +361,8 @@ app.post("/v1/messages", async (c) => {
                 latency,
               });
               await markProviderSuccess(safeName, c.env);
-              const responseHeaders = cleanHeaders(response.headers);
+              const cleanedHeaders = cleanHeaders(response.headers);
+              const responseHeaders = new Headers(cleanedHeaders);
               responseHeaders.set('x-request-id', requestId);
               return new Response(response.body, {
                 status: response.status,
