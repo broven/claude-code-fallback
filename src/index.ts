@@ -27,12 +27,9 @@ import { buildCurlCommand } from "./utils/curl";
 
 const app = new Hono<{ Bindings: Bindings }>();
 
-// Health check endpoint
-app.get("/", async (c) => {
-  const config = await loadConfig(c.env);
-  return c.text(
-    `Claude Code Fallback Proxy (Workers) is running! Loaded ${config.providers.length} fallback provider(s).`,
-  );
+// Redirect root to admin panel
+app.get("/", (c) => {
+  return c.redirect("/admin");
 });
 
 // Admin routes

@@ -40,56 +40,15 @@ describe('Main Application', () => {
     vi.restoreAllMocks();
   });
 
-  describe('GET / (health check)', () => {
-    it('returns 200 status', async () => {
+  describe('GET / (redirect to admin)', () => {
+    it('returns 302 redirect to /admin', async () => {
       const env = createMockBindings();
       const request = new Request('http://localhost/');
 
       const response = await app.fetch(request, env);
 
-      expect(response.status).toBe(200);
-    });
-
-    it('returns text content type', async () => {
-      const env = createMockBindings();
-      const request = new Request('http://localhost/');
-
-      const response = await app.fetch(request, env);
-
-      expect(response.headers.get('content-type')).toContain('text/plain');
-    });
-
-    it('includes proxy running message', async () => {
-      const env = createMockBindings();
-      const request = new Request('http://localhost/');
-
-      const response = await app.fetch(request, env);
-      const text = await response.text();
-
-      expect(text).toContain('Claude Code Fallback Proxy');
-      expect(text).toContain('is running');
-    });
-
-    it('includes provider count', async () => {
-      const env = createMockBindings({
-        kvData: { providers: JSON.stringify(multipleProviders) },
-      });
-      const request = new Request('http://localhost/');
-
-      const response = await app.fetch(request, env);
-      const text = await response.text();
-
-      expect(text).toContain('3 fallback provider(s)');
-    });
-
-    it('shows 0 providers when none configured', async () => {
-      const env = createMockBindings();
-      const request = new Request('http://localhost/');
-
-      const response = await app.fetch(request, env);
-      const text = await response.text();
-
-      expect(text).toContain('0 fallback provider(s)');
+      expect(response.status).toBe(302);
+      expect(response.headers.get('location')).toBe('/admin');
     });
   });
 
