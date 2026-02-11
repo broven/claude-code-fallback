@@ -29,6 +29,11 @@ export async function authMiddleware(
   }
 
   if (token !== c.env.ADMIN_TOKEN) {
+    // For browser navigation to /admin, redirect to login page
+    const accept = c.req.header('Accept') || '';
+    if (c.req.path === '/admin' && accept.includes('text/html')) {
+      return c.redirect('/admin/login');
+    }
     return c.text('Unauthorized', 401);
   }
 

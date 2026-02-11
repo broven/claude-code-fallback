@@ -6,6 +6,7 @@ import { tryProvider } from "./utils/provider";
 import {
   authMiddleware,
   adminPage,
+  loginPage,
   getConfig,
   postConfig,
   getTokens,
@@ -31,6 +32,9 @@ const app = new Hono<{ Bindings: Bindings }>();
 app.get("/", (c) => {
   return c.redirect("/admin");
 });
+
+// Login page (no auth required)
+app.get("/admin/login", loginPage);
 
 // Admin routes
 app.get("/admin", authMiddleware, adminPage);

@@ -148,6 +148,19 @@ describe("authMiddleware", () => {
 
       expect(response.status).toBe(200);
     });
+
+    it("redirects to /admin/login when token is missing on GET /admin", async () => {
+      const env = createMockBindings({ adminToken: "valid-token" });
+      // Browser navigation includes Accept: text/html
+      const request = new Request("http://localhost/admin", {
+        headers: { "Accept": "text/html,application/xhtml+xml" },
+      });
+
+      const response = await app.fetch(request, env);
+
+      expect(response.status).toBe(302);
+      expect(response.headers.get("location")).toBe("/admin/login");
+    });
   });
 });
 
