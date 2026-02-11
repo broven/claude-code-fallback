@@ -501,8 +501,13 @@ export async function adminPage(c: Context<{ Bindings: Bindings }>) {
   </style>
 </head>
 <body>
-  <h1>Claude Code Fallback Proxy</h1>
-  <p class="subtitle">Admin Panel</p>
+  <div style="display:flex;justify-content:space-between;align-items:center;">
+    <div>
+      <h1>Claude Code Fallback Proxy</h1>
+      <p class="subtitle">Admin Panel</p>
+    </div>
+    <button class="btn btn-danger" onclick="logout()">Logout</button>
+  </div>
 
   <div id="status" class="status"></div>
 
@@ -633,6 +638,10 @@ export async function adminPage(c: Context<{ Bindings: Bindings }>) {
 
   <script>
     const TOKEN = '${escapeHtml(token)}';
+    // Persist token to localStorage for future visits
+    if (TOKEN) {
+      localStorage.setItem('admin_token', TOKEN);
+    }
     const WORKER_BASE_URL = '${escapeHtml(workerBaseUrl)}';
     var CLAUDE_MODELS = [
       { id: 'claude-sonnet-4-5-20250929', label: 'Claude Sonnet 4' },
@@ -1298,6 +1307,11 @@ export async function adminPage(c: Context<{ Bindings: Bindings }>) {
       } catch (e) {
         showStatus('Invalid JSON: ' + e.message, true);
       }
+    }
+
+    function logout() {
+      localStorage.removeItem('admin_token');
+      window.location.href = '/admin/login';
     }
 
     // ---- Init ----

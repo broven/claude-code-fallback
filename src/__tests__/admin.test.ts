@@ -380,6 +380,25 @@ describe("adminPage", () => {
   });
 });
 
+describe("adminPage token persistence", () => {
+  let app: Hono<{ Bindings: Bindings }>;
+
+  beforeEach(() => {
+    app = createTestApp();
+  });
+
+  it("includes localStorage save logic in admin page", async () => {
+    const env = createMockBindings({ adminToken: "valid-token" });
+    const request = createRequest("/admin", { token: "valid-token" });
+
+    const response = await app.fetch(request, env);
+    const html = await response.text();
+
+    expect(html).toContain("localStorage.setItem");
+    expect(html).toContain("admin_token");
+  });
+});
+
 describe("getConfig", () => {
   let app: Hono<{ Bindings: Bindings }>;
 
