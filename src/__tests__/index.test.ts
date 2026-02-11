@@ -117,7 +117,7 @@ describe('Main Application', () => {
             'content-type': 'application/json',
             'transfer-encoding': 'chunked',
             connection: 'keep-alive',
-            'x-request-id': '12345',
+            'ccr-request-id': '12345',
           },
         });
         globalThis.fetch = vi.fn().mockResolvedValue(responseWithBadHeaders);
@@ -128,7 +128,7 @@ describe('Main Application', () => {
 
         expect(response.headers.get('transfer-encoding')).toBeNull();
         expect(response.headers.get('connection')).toBeNull();
-        expect(response.headers.get('x-request-id')).toBe('12345');
+        expect(response.headers.get('ccr-request-id')).toBeTruthy();
       });
     });
 
@@ -442,13 +442,16 @@ describe('Main Application', () => {
 
         await app.fetch(request, env);
 
-        expect(consoleSpy).toHaveBeenCalledWith(
-          '[Proxy] Incoming Request',
-          expect.objectContaining({
-            method: 'POST',
-            model: validMessageRequest.model,
-          })
+        // Structured logger outputs JSON strings via console.log
+        const logCalls = consoleSpy.mock.calls.map(call => call[0]);
+        const startLog = logCalls.find(msg =>
+          typeof msg === 'string' && msg.includes('"event":"request.start"')
         );
+        expect(startLog).toBeDefined();
+        const parsed = JSON.parse(startLog as string);
+        expect(parsed.event).toBe('request.start');
+        expect(parsed.data.model).toBe(validMessageRequest.model);
+        expect(parsed.requestId).toMatch(/^ccr-/);
       });
     });
   });

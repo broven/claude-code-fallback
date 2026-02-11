@@ -103,7 +103,7 @@ class Logger {
  * Generate a unique request ID for tracing
  */
 export function generateRequestId(): string {
-  return `req_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+  return `ccr-${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
 }
 
 /**

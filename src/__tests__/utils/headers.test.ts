@@ -310,13 +310,13 @@ describe('cleanHeaders', () => {
     it('preserves custom headers', () => {
       const headers = createHeaders({
         'x-custom-header': 'custom-value',
-        'x-request-id': '123456',
+        'ccr-request-id': '123456',
       });
 
       const result = cleanHeaders(headers);
 
       expect(result['x-custom-header']).toBe('custom-value');
-      expect(result['x-request-id']).toBe('123456');
+      expect(result['ccr-request-id']).toBe('123456');
     });
   });
 

@@ -54,10 +54,17 @@ app.post("/v1/messages", async (c) => {
 
   // Generate or extract request ID for tracing
   const headers = c.req.header();
-  const requestId = headers["x-request-id"] || generateRequestId();
+  const requestId = headers["ccr-request-id"] || generateRequestId();
 
   const config = await loadConfig(c.env);
   const logger = createLogger(requestId, config.debug);
+
+  // Helper to attach request ID header to any response
+  const withRequestId = (res: Response): Response => {
+    const h = new Headers(res.headers);
+    h.set('ccr-request-id', requestId);
+    return new Response(res.body, { status: res.status, headers: h });
+  };
 
   const body = await c.req.json();
   const skipAnthropic = headers["x-ccf-debug-skip-anthropic"] === "1";
@@ -82,7 +89,7 @@ app.post("/v1/messages", async (c) => {
     const authKey = headers["x-ccf-api-key"];
     if (!authKey || !config.allowedTokens.includes(authKey)) {
       logger.warn('auth.failure', 'Unauthorized request - missing or invalid API key');
-      return c.json(
+      return withRequestId(c.json(
         {
           error: {
             type: "authentication_error",
@@ -90,7 +97,7 @@ app.post("/v1/messages", async (c) => {
           },
         },
         401,
-      );
+      ));
     }
   }
 
@@ -146,7 +153,7 @@ app.post("/v1/messages", async (c) => {
           await markProviderSuccess(anthropicName, c.env);
           const cleanedHeaders = cleanHeaders(response.headers);
           const responseHeaders = new Headers(cleanedHeaders);
-          responseHeaders.set('x-request-id', requestId);
+          responseHeaders.set('ccr-request-id', requestId);
           return new Response(response.body, {
             status: response.status,
             headers: responseHeaders,
@@ -180,7 +187,7 @@ app.post("/v1/messages", async (c) => {
             status,
             latency: Date.now() - startTime,
           });
-          return lastErrorResponse;
+          return withRequestId(lastErrorResponse);
         }
 
         // Mark failed
@@ -206,9 +213,9 @@ app.post("/v1/messages", async (c) => {
     logger.warn('request.error', 'No fallback providers configured');
     logDebugCurl();
     if (lastErrorResponse) {
-      return lastErrorResponse;
+      return withRequestId(lastErrorResponse);
     }
-    return c.json(
+    return withRequestId(c.json(
       {
         error: {
           type: "proxy_error",
@@ -216,7 +223,7 @@ app.post("/v1/messages", async (c) => {
         },
       },
       502,
-    );
+    ));
   }
 
   for (const provider of config.providers) {
@@ -262,7 +269,7 @@ app.post("/v1/messages", async (c) => {
         await markProviderSuccess(provider.name, c.env);
         const cleanedHeaders = cleanHeaders(response.headers);
         const responseHeaders = new Headers(cleanedHeaders);
-        responseHeaders.set('x-request-id', requestId);
+        responseHeaders.set('ccr-request-id', requestId);
         return new Response(response.body, {
           status: response.status,
           headers: responseHeaders,
@@ -331,7 +338,7 @@ app.post("/v1/messages", async (c) => {
             await markProviderSuccess(anthropicName, c.env);
             const cleanedHeaders = cleanHeaders(response.headers);
             const responseHeaders = new Headers(cleanedHeaders);
-            responseHeaders.set('x-request-id', requestId);
+            responseHeaders.set('ccr-request-id', requestId);
             return new Response(response.body, {
               status: response.status,
               headers: responseHeaders,
@@ -372,7 +379,7 @@ app.post("/v1/messages", async (c) => {
               await markProviderSuccess(safeName, c.env);
               const cleanedHeaders = cleanHeaders(response.headers);
               const responseHeaders = new Headers(cleanedHeaders);
-              responseHeaders.set('x-request-id', requestId);
+              responseHeaders.set('ccr-request-id', requestId);
               return new Response(response.body, {
                 status: response.status,
                 headers: responseHeaders,
@@ -412,7 +419,7 @@ app.post("/v1/messages", async (c) => {
       latency: Date.now() - startTime,
     });
     logDebugCurl();
-    return lastErrorResponse;
+    return withRequestId(lastErrorResponse);
   }
 
   logger.error('request.error', 'All API providers exhausted', {
@@ -420,7 +427,7 @@ app.post("/v1/messages", async (c) => {
     latency: Date.now() - startTime,
   });
   logDebugCurl();
-  return c.json(
+  return withRequestId(c.json(
     {
       error: {
         type: "fallback_exhausted",
@@ -429,7 +436,7 @@ app.post("/v1/messages", async (c) => {
       },
     },
     502,
-  );
+  ));
 });
 
 export default app;

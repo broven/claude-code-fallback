@@ -18,7 +18,7 @@ All logs are output in JSON format with the following structure:
   "level": "info",
   "event": "provider.success",
   "message": "Provider request successful",
-  "requestId": "req_1770779551776_2y97ttx",
+  "requestId": "ccr-1770779551776_2y97ttx",
   "data": {
     "provider": "openrouter",
     "model": "claude-sonnet-4-5-20250929",
@@ -38,10 +38,10 @@ All logs are output in JSON format with the following structure:
 
 ### 2. Request ID Tracking
 
-Every request gets a unique ID (format: `req_{timestamp}_{random}`):
+Every request gets a unique ID (format: `ccr-{timestamp}_{random}`):
 - Automatically generated for incoming requests
-- Can be provided by client via `X-Request-ID` header
-- Returned to client in `X-Request-ID` response header
+- Can be provided by client via `ccr-request-id` header
+- Returned to client in `ccr-request-id` response header
 - Included in all log entries for that request
 
 ### 3. Cloudflare Workers Observability
@@ -83,7 +83,7 @@ Enabled in `wrangler.jsonc`:
 2. Navigate to: **Workers & Pages** → **Your Worker** → **Observability**
 3. Use the Query Builder to filter logs:
    - Filter by `event` type: `event = "provider.failure"`
-   - Filter by Request ID: `requestId = "req_..."`
+   - Filter by Request ID: `requestId = "ccr-..."`
    - Filter by provider: `data.provider = "openrouter"`
 
 ### Method 2: Real-time Tail (Development)
@@ -113,7 +113,7 @@ event = "request.error"
 
 ### Track a specific request
 ```
-requestId = "req_1770779551776_2y97ttx"
+requestId = "ccr-1770779551776_2y97ttx"
 ```
 
 ### Find provider failures for a specific model
