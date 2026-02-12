@@ -684,6 +684,7 @@ export async function adminPage(c: Context<{ Bindings: Bindings }>) {
     let providers = [];
     let tokenConfigs = [];
     var anthropicDisabled = ${anthropicDisabled};
+    var providerStates = {};
 
     try {
       providers = JSON.parse(${JSON.stringify(config)});
@@ -830,6 +831,7 @@ export async function adminPage(c: Context<{ Bindings: Bindings }>) {
               '<span class="anthropic-badge">PRIMARY</span>' +
             '</div>' +
             '<div class="card-subtitle">https://api.anthropic.com/v1/messages</div>' +
+            renderCbStatus('anthropic-primary') +
           '</div>' +
           '<div class="card-actions">' +
             '<label class="toggle-switch" title="' + (anthropicDisabled ? 'Enable' : 'Disable') + ' provider">' +
@@ -866,6 +868,7 @@ export async function adminPage(c: Context<{ Bindings: Bindings }>) {
                 '<div class="card-subtitle">' + escapeHtml(p.baseUrl) + '</div>' +
                 (p.format === 'openai' ? '<div class="card-meta">Format: OpenAI</div>' : '') +
                 (mappingCount > 0 ? '<div class="card-meta">Mappings: ' + mappingCount + '</div>' : '') +
+                renderCbStatus(p.name) +
               '</div>' +
               '<div class="card-actions">' +
                 '<label class="toggle-switch" title="' + (p.disabled ? 'Enable' : 'Disable') + ' provider">' +
@@ -1346,9 +1349,76 @@ export async function adminPage(c: Context<{ Bindings: Bindings }>) {
       window.location.href = '/admin/login';
     }
 
+    // ---- Circuit Breaker Status ----
+    async function fetchProviderStates() {
+      try {
+        var res = await fetch('/admin/provider-states', {
+          headers: { 'Authorization': 'Bearer ' + TOKEN }
+        });
+        if (res.ok) {
+          providerStates = await res.json();
+          renderProviders();
+        }
+      } catch (e) {
+        // Silently fail - status is informational
+      }
+    }
+
+    function formatCountdown(ms) {
+      if (ms <= 0) return 'recovering...';
+      var totalSec = Math.ceil(ms / 1000);
+      var min = Math.floor(totalSec / 60);
+      var sec = totalSec % 60;
+      if (min > 0) return min + 'm ' + sec + 's';
+      return sec + 's';
+    }
+
+    function renderCbStatus(name) {
+      var state = providerStates[name];
+      if (!state) return '';
+      var now = Date.now();
+      var inCooldown = state.cooldownUntil && state.cooldownUntil > now;
+      if (inCooldown) {
+        var remaining = state.cooldownUntil - now;
+        return '<div class="cb-status cooldown" data-cb-name="' + escapeHtml(name) + '" data-cb-until="' + state.cooldownUntil + '">' +
+          '<span class="cb-dot"></span>' +
+          'In Cooldown <span class="cb-countdown">' + formatCountdown(remaining) + '</span>' +
+        '</div>' +
+        '<div class="cb-failures">' + state.consecutiveFailures + ' consecutive failures</div>';
+      }
+      if (state.consecutiveFailures > 0) {
+        return '<div class="cb-status healthy">' +
+          '<span class="cb-dot"></span>Healthy' +
+        '</div>' +
+        '<div class="cb-failures">' + state.consecutiveFailures + ' consecutive failures</div>';
+      }
+      return '<div class="cb-status healthy"><span class="cb-dot"></span>Healthy</div>';
+    }
+
     // ---- Init ----
     renderProviders();
     renderTokens();
+    fetchProviderStates();
+
+    // Tick countdowns every second
+    setInterval(function() {
+      var els = document.querySelectorAll('[data-cb-until]');
+      var now = Date.now();
+      var needsRefresh = false;
+      for (var i = 0; i < els.length; i++) {
+        var until = parseInt(els[i].getAttribute('data-cb-until'), 10);
+        var remaining = until - now;
+        var countdown = els[i].querySelector('.cb-countdown');
+        if (remaining <= 0) {
+          needsRefresh = true;
+        } else if (countdown) {
+          countdown.textContent = formatCountdown(remaining);
+        }
+      }
+      if (needsRefresh) {
+        fetchProviderStates();
+      }
+    }, 1000);
   </script>
 </body>
 </html>`;
