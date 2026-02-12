@@ -1373,6 +1373,23 @@ export async function adminPage(c: Context<{ Bindings: Bindings }>) {
       return sec + 's';
     }
 
+    async function resetCbState(name) {
+      try {
+        var res = await fetch('/admin/provider-states/' + encodeURIComponent(name) + '/reset', {
+          method: 'POST',
+          headers: { 'Authorization': 'Bearer ' + TOKEN }
+        });
+        if (res.ok) {
+          showStatus('Circuit breaker reset for ' + name);
+          fetchProviderStates();
+        } else {
+          showStatus('Failed to reset: ' + await res.text(), true);
+        }
+      } catch (e) {
+        showStatus('Error: ' + e.message, true);
+      }
+    }
+
     function renderCbStatus(name) {
       var state = providerStates[name];
       if (!state) return '';
@@ -1383,6 +1400,7 @@ export async function adminPage(c: Context<{ Bindings: Bindings }>) {
         return '<div class="cb-status cooldown" data-cb-name="' + escapeHtml(name) + '" data-cb-until="' + state.cooldownUntil + '">' +
           '<span class="cb-dot"></span>' +
           'In Cooldown <span class="cb-countdown">' + formatCountdown(remaining) + '</span>' +
+          ' <button class="btn btn-sm" style="padding:1px 8px;font-size:11px;background:#fff;color:#721c24;border:1px solid #721c24;margin-left:4px;" onclick="resetCbState(\'' + escapeHtml(name) + '\')">Reset</button>' +
         '</div>' +
         '<div class="cb-failures">' + state.consecutiveFailures + ' consecutive failures</div>';
       }
@@ -1750,6 +1768,22 @@ export async function getProviderStates(c: Context<{ Bindings: Bindings }>) {
   }
 
   return c.json(states);
+}
+
+/**
+ * POST /admin/provider-states/:name/reset - Reset circuit breaker state for a provider
+ */
+export async function resetProviderState(c: Context<{ Bindings: Bindings }>) {
+  const name = c.req.param('name');
+  const key = `provider-state:${name}`;
+  const defaultState: ProviderState = {
+    consecutiveFailures: 0,
+    lastFailure: null,
+    lastSuccess: null,
+    cooldownUntil: null,
+  };
+  await c.env.CONFIG_KV.put(key, JSON.stringify(defaultState));
+  return c.json({ success: true });
 }
 
 /**

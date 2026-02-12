@@ -12,6 +12,7 @@ import {
   postSettings,
   testProvider,
   getProviderStates,
+  resetProviderState,
 } from "../admin";
 import { Bindings } from "../types";
 import { createMockBindings } from "./mocks/kv";
@@ -36,6 +37,7 @@ function createTestApp() {
   app.post("/admin/settings", authMiddleware, postSettings);
   app.post("/admin/test-provider", authMiddleware, testProvider);
   app.get("/admin/provider-states", authMiddleware, getProviderStates);
+  app.post("/admin/provider-states/:name/reset", authMiddleware, resetProviderState);
   return app;
 }
 
@@ -1128,6 +1130,60 @@ describe("getProviderStates", () => {
   it("requires authentication", async () => {
     const env = createMockBindings({ adminToken: "test-token" });
     const request = createRequest("/admin/provider-states");
+
+    const response = await app.fetch(request, env);
+
+    expect(response.status).toBe(401);
+  });
+});
+
+describe("resetProviderState", () => {
+  let app: Hono<{ Bindings: Bindings }>;
+
+  beforeEach(() => {
+    app = createTestApp();
+  });
+
+  it("resets provider state to defaults", async () => {
+    const failedState = {
+      consecutiveFailures: 5,
+      lastFailure: 1700000000000,
+      lastSuccess: 1699999000000,
+      cooldownUntil: 1700000060000,
+    };
+    const env = createMockBindings({
+      adminToken: "test-token",
+      kvData: {
+        providers: JSON.stringify([validProvider]),
+        "provider-state:openrouter": JSON.stringify(failedState),
+      },
+    });
+    const request = createRequest("/admin/provider-states/openrouter/reset", {
+      method: "POST",
+      token: "test-token",
+    });
+
+    const response = await app.fetch(request, env);
+
+    expect(response.status).toBe(200);
+    const data = await response.json();
+    expect(data).toEqual({ success: true });
+
+    // Verify state was reset in KV
+    const resetState = await env.CONFIG_KV.get("provider-state:openrouter");
+    expect(JSON.parse(resetState!)).toEqual({
+      consecutiveFailures: 0,
+      lastFailure: null,
+      lastSuccess: null,
+      cooldownUntil: null,
+    });
+  });
+
+  it("requires authentication", async () => {
+    const env = createMockBindings({ adminToken: "test-token" });
+    const request = createRequest("/admin/provider-states/openrouter/reset", {
+      method: "POST",
+    });
 
     const response = await app.fetch(request, env);
 
