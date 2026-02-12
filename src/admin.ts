@@ -498,6 +498,38 @@ export async function adminPage(c: Context<{ Bindings: Bindings }>) {
       font-weight: 500;
       vertical-align: middle;
     }
+    /* Circuit breaker status */
+    .cb-status {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 12px;
+      padding: 3px 10px;
+      border-radius: 12px;
+      margin-top: 6px;
+    }
+    .cb-status.healthy {
+      background: #d4edda;
+      color: #155724;
+    }
+    .cb-status.cooldown {
+      background: #f8d7da;
+      color: #721c24;
+    }
+    .cb-status .cb-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      display: inline-block;
+    }
+    .cb-status.healthy .cb-dot { background: #27ae60; }
+    .cb-status.cooldown .cb-dot { background: #e74c3c; }
+    .cb-status .cb-countdown { font-variant-numeric: tabular-nums; }
+    .cb-failures {
+      font-size: 11px;
+      color: #888;
+      margin-top: 2px;
+    }
   </style>
 </head>
 <body>
