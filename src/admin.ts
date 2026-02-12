@@ -1,5 +1,5 @@
 import { Context, Next } from 'hono';
-import { Bindings, ProviderConfig, TokenConfig } from './types';
+import { Bindings, ProviderConfig, ProviderState, TokenConfig } from './types';
 import {
   getRawConfig,
   saveConfig,
@@ -1616,6 +1616,38 @@ export async function postAnthropicStatus(c: Context<{ Bindings: Bindings }>) {
   } catch (e: any) {
     return c.json({ error: e.message }, 400);
   }
+}
+
+/**
+ * GET /admin/provider-states - Get circuit breaker state for all providers
+ */
+export async function getProviderStates(c: Context<{ Bindings: Bindings }>) {
+  const config = await getRawConfig(c.env);
+  let providers: { name: string }[] = [];
+  try {
+    providers = JSON.parse(config);
+  } catch {
+    providers = [];
+  }
+
+  const names = ['anthropic-primary', ...providers.map((p) => p.name)];
+
+  const states: Record<string, ProviderState> = {};
+  for (const name of names) {
+    const key = `provider-state:${name}`;
+    const raw = await c.env.CONFIG_KV.get(key);
+    if (raw) {
+      try {
+        states[name] = JSON.parse(raw);
+      } catch {
+        states[name] = { consecutiveFailures: 0, lastFailure: null, lastSuccess: null, cooldownUntil: null };
+      }
+    } else {
+      states[name] = { consecutiveFailures: 0, lastFailure: null, lastSuccess: null, cooldownUntil: null };
+    }
+  }
+
+  return c.json(states);
 }
 
 /**
