@@ -229,6 +229,8 @@ describe('Main Application', () => {
 
         expect(response.status).toBe(400);
         expect(data).toEqual(errorResponses.badRequest);
+        // Verify ccr-request-id header is present on error responses
+        expect(response.headers.get('ccr-request-id')).toBeTruthy();
       });
 
       it('does NOT trigger fallback on 404', async () => {

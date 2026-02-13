@@ -90,7 +90,12 @@ app.post("/v1/messages", async (c) => {
   });
 
   // Get cooldown from config (defaults to env or 300s)
-  const cooldownDuration = config.cooldownDuration;
+  // If only one provider is active, disable cooldown (0s)
+  const activeFallbackProviders = config.providers.filter(p => !p.disabled).length;
+  const primaryActive = !config.anthropicPrimaryDisabled;
+  const totalActiveProviders = activeFallbackProviders + (primaryActive ? 1 : 0);
+
+  const cooldownDuration = totalActiveProviders <= 1 ? 0 : config.cooldownDuration;
 
   // Check for authentication if tokens are configured
   if (config.allowedTokens && config.allowedTokens.length > 0) {
