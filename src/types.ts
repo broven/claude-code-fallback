@@ -20,6 +20,8 @@ export interface TokenConfig {
   note?: string;
 }
 
+import type { RectifierConfig } from "./types/rectifier";
+
 /**
  * Application configuration
  */
@@ -30,6 +32,7 @@ export interface AppConfig {
   tokenConfigs: TokenConfig[];
   cooldownDuration: number;
   anthropicPrimaryDisabled: boolean;
+  rectifier: RectifierConfig;
 }
 
 /**

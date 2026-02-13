@@ -10,7 +10,10 @@ import {
   saveCooldown,
   getRawAnthropicDisabled,
   saveAnthropicDisabled,
+  getRawRectifierConfig,
+  saveRectifierConfig,
 } from './config';
+import type { RectifierConfig } from './types/rectifier';
 import { convertAnthropicToOpenAI } from './utils/format-converter';
 
 /**
@@ -1615,6 +1618,41 @@ export async function postAnthropicStatus(c: Context<{ Bindings: Bindings }>) {
     return c.json({ success: true });
   } catch (e: any) {
     return c.json({ error: e.message }, 400);
+  }
+}
+
+/**
+ * GET /admin/rectifier - Get rectifier configuration
+ */
+export async function getRectifierConfig(c: Context<{ Bindings: Bindings }>) {
+  const config = await getRawRectifierConfig(c.env);
+  return c.json(config);
+}
+
+/**
+ * POST /admin/rectifier - Update rectifier configuration
+ */
+export async function postRectifierConfig(c: Context<{ Bindings: Bindings }>) {
+  try {
+    const body = await c.req.json();
+
+    const config: RectifierConfig = {
+      enabled: body.enabled ?? true,
+      requestThinkingSignature: body.requestThinkingSignature ?? true,
+      requestThinkingBudget: body.requestThinkingBudget ?? true,
+    };
+
+    await saveRectifierConfig(c.env, config);
+
+    return c.json({ success: true, config });
+  } catch (error: any) {
+    return c.json(
+      {
+        error: 'Failed to save rectifier config',
+        message: error.message,
+      },
+      400,
+    );
   }
 }
 

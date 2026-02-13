@@ -16,6 +16,8 @@ import {
   testProvider,
   getAnthropicStatus,
   postAnthropicStatus,
+  getRectifierConfig,
+  postRectifierConfig,
 } from "./admin";
 import {
   isProviderAvailable,
@@ -47,6 +49,8 @@ app.post("/admin/settings", authMiddleware, postSettings);
 app.post("/admin/test-provider", authMiddleware, testProvider);
 app.get("/admin/anthropic-status", authMiddleware, getAnthropicStatus);
 app.post("/admin/anthropic-status", authMiddleware, postAnthropicStatus);
+app.get("/admin/rectifier", authMiddleware, getRectifierConfig);
+app.post("/admin/rectifier", authMiddleware, postRectifierConfig);
 
 // Main proxy endpoint
 app.post("/v1/messages", async (c) => {
