@@ -214,9 +214,9 @@ app.post("/v1/messages", async (c) => {
             if (result.applied) {
               logger.info('rectifier.applied', 'Signature rectification applied', result);
 
-              // Retry request
+              // Retry request with longer timeout (rectified bodies can be large)
               const retryController = new AbortController();
-              const retryTimeoutId = setTimeout(() => retryController.abort(), 30000);
+              const retryTimeoutId = setTimeout(() => retryController.abort(), 120000);
 
               try {
                 const retryResponse = await fetch("https://api.anthropic.com/v1/messages", {
@@ -255,13 +255,19 @@ app.post("/v1/messages", async (c) => {
                   latency: Date.now() - attemptStart,
                 });
               } catch (retryError: any) {
-                logger.error('provider.timeout', 'Error retrying Anthropic request after rectification', {
+                // Treat rectifier retry timeout/error as 504 so it's eligible for fallback
+                status = 504;
+                errorBody = JSON.stringify({
+                  error: {
+                    type: 'proxy_error',
+                    message: `Rectifier retry failed: ${retryError.message}`,
+                  },
+                });
+                logger.error('provider.timeout', 'Error retrying Anthropic request after rectification, will try fallback', {
                   provider: anthropicName,
                   model: body.model,
                   error: retryError.message,
                 });
-                // Let the flow continue, we still have the original error or we could bubble up the retry error
-                // Ideally we treat this as a failed attempt that might trigger fallback if eligible
               }
             }
           }
@@ -479,9 +485,9 @@ app.post("/v1/messages", async (c) => {
               if (result.applied) {
                 logger.info('rectifier.applied', 'Signature rectification applied (Safety Valve)', result);
 
-                // Retry request
+                // Retry request with longer timeout (rectified bodies can be large)
                 const retryController = new AbortController();
-                const retryTimeoutId = setTimeout(() => retryController.abort(), 30000);
+                const retryTimeoutId = setTimeout(() => retryController.abort(), 120000);
 
                 try {
                   const retryResponse = await fetch("https://api.anthropic.com/v1/messages", {
@@ -522,6 +528,14 @@ app.post("/v1/messages", async (c) => {
                     latency: Date.now() - attemptStart,
                   });
                 } catch (retryError: any) {
+                  // Treat rectifier retry timeout/error as 504
+                  finalStatus = 504;
+                  errorBody = JSON.stringify({
+                    error: {
+                      type: 'proxy_error',
+                      message: `Rectifier retry failed: ${retryError.message}`,
+                    },
+                  });
                   logger.error('provider.timeout', 'Error retrying Anthropic request after rectification (Safety Valve)', {
                     provider: anthropicName,
                     model: body.model,
