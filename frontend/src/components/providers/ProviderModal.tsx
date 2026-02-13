@@ -21,6 +21,7 @@ export function ProviderModal({ open, onClose, onSave, provider }: ProviderModal
   const [baseUrl, setBaseUrl] = useState("");
   const [apiKey, setApiKey] = useState("");
   const [format, setFormat] = useState<"anthropic" | "openai">("anthropic");
+  const [retry, setRetry] = useState("0");
   const [showApiKey, setShowApiKey] = useState(false);
   const [modelMappings, setModelMappings] = useState<KVPair[]>([]);
   const [customHeaders, setCustomHeaders] = useState<KVPair[]>([]);
@@ -33,6 +34,7 @@ export function ProviderModal({ open, onClose, onSave, provider }: ProviderModal
         setBaseUrl(provider.baseUrl);
         setApiKey(provider.apiKey);
         setFormat(provider.format || "anthropic");
+        setRetry(provider.retry?.toString() || "0");
         setModelMappings(
           provider.modelMapping
             ? Object.entries(provider.modelMapping).map(([key, value]) => ({ key, value }))
@@ -48,6 +50,7 @@ export function ProviderModal({ open, onClose, onSave, provider }: ProviderModal
         setBaseUrl("");
         setApiKey("");
         setFormat("anthropic");
+        setRetry("0");
         setModelMappings([]);
         setCustomHeaders([]);
       }
@@ -60,6 +63,8 @@ export function ProviderModal({ open, onClose, onSave, provider }: ProviderModal
     if (!name.trim() || !baseUrl.trim() || !apiKey.trim()) return null;
     const p: ProviderConfig = { name: name.trim(), baseUrl: baseUrl.trim(), apiKey: apiKey.trim() };
     if (format !== "anthropic") p.format = format;
+    const retryCount = parseInt(retry, 10);
+    if (!isNaN(retryCount) && retryCount > 0) p.retry = retryCount;
 
     const mapping: Record<string, string> = {};
     let hasMapping = false;
@@ -152,6 +157,14 @@ export function ProviderModal({ open, onClose, onSave, provider }: ProviderModal
               <option value="openai">OpenAI Chat Completions</option>
             </select>
             <p className="mt-1 text-xs text-gray-500">Select the API format this provider accepts.</p>
+          </div>
+
+          {/* Retry Count */}
+          <div>
+            <label className="mb-1 block text-sm font-medium text-gray-700">Retry Count</label>
+            <input type="number" min="0" max="10" value={retry} onChange={(e) => setRetry(e.target.value)}
+              className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500" />
+            <p className="mt-1 text-xs text-gray-500">Number of times to retry failed requests (network or server errors) before failing over.</p>
           </div>
 
           {/* Model Mappings */}

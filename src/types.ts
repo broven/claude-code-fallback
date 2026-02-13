@@ -10,6 +10,7 @@ export interface ProviderConfig {
   modelMapping?: Record<string, string>;
   format?: "anthropic" | "openai";
   disabled?: boolean;
+  retry?: number;
 }
 
 /**
