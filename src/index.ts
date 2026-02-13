@@ -22,6 +22,10 @@ import {
   resetProviderState,
 } from "./admin";
 import {
+  shouldRectifyThinkingSignature,
+  rectifyAnthropicRequest,
+} from "./utils/rectifier";
+import {
   isProviderAvailable,
   markProviderFailed,
   markProviderSuccess,
@@ -168,8 +172,87 @@ app.post("/v1/messages", async (c) => {
           });
         }
 
-        const status = response.status;
-        const errorBody = await response.text();
+        let status = response.status;
+        let errorBody = await response.text();
+
+        // Check for rectification on 400 errors (e.g. invalid thinking signature)
+        if (status === 400) {
+          let errorMessage: string | undefined;
+          try {
+            const errorJson = JSON.parse(errorBody);
+            errorMessage =
+              errorJson.error?.message ||
+              errorJson.message ||
+              errorJson.error?.type ||
+              errorBody;
+          } catch {
+            errorMessage = errorBody;
+          }
+
+          if (shouldRectifyThinkingSignature(errorMessage, config.rectifier)) {
+            logger.info('rectifier.attempt', 'Applying signature rectification for Anthropic primary', {
+              errorMessage
+            });
+
+            const rectifiedBody = JSON.parse(JSON.stringify(body));
+            const result = rectifyAnthropicRequest(rectifiedBody);
+
+            if (result.applied) {
+              logger.info('rectifier.applied', 'Signature rectification applied', result);
+
+              // Retry request
+              const retryController = new AbortController();
+              const retryTimeoutId = setTimeout(() => retryController.abort(), 30000);
+
+              try {
+                const retryResponse = await fetch("https://api.anthropic.com/v1/messages", {
+                  method: "POST",
+                  headers: filteredHeaders,
+                  body: JSON.stringify(rectifiedBody),
+                  signal: retryController.signal,
+                });
+
+                clearTimeout(retryTimeoutId);
+
+                if (retryResponse.ok) {
+                  logger.info('provider.success', 'Anthropic API request successful after rectification', {
+                    provider: anthropicName,
+                    model: body.model,
+                    status: retryResponse.status,
+                    latency: Date.now() - attemptStart,
+                  });
+                  await markProviderSuccess(anthropicName, c.env);
+                  const cleanedHeaders = cleanHeaders(retryResponse.headers);
+                  const responseHeaders = new Headers(cleanedHeaders);
+                  responseHeaders.set('ccr-request-id', requestId);
+                  return new Response(retryResponse.body, {
+                    status: retryResponse.status,
+                    headers: responseHeaders,
+                  });
+                }
+
+                // If retry fails, update status and errorBody for fallback logic (or final response)
+                status = retryResponse.status;
+                errorBody = await retryResponse.text();
+                logger.warn('provider.failure', 'Anthropic API request failed after rectification', {
+                  provider: anthropicName,
+                  model: body.model,
+                  status,
+                  latency: Date.now() - attemptStart,
+                });
+              } catch (retryError: any) {
+                logger.error('provider.timeout', 'Error retrying Anthropic request after rectification', {
+                  provider: anthropicName,
+                  model: body.model,
+                  error: retryError.message,
+                });
+                // Let the flow continue, we still have the original error or we could bubble up the retry error
+                // Ideally we treat this as a failed attempt that might trigger fallback if eligible
+              }
+            }
+          }
+        }
+
         lastErrorResponse = new Response(errorBody, {
           status,
           headers: cleanHeaders(response.headers),
