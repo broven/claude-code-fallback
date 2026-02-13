@@ -3,6 +3,7 @@ import { Bindings } from "./types";
 import { loadConfig } from "./config";
 import { cleanRequestHeaders, cleanHeaders } from "./utils/headers";
 import { tryProvider } from "./utils/provider";
+import { stripBillingHeaderCch } from "./utils/billing-header";
 import {
   authMiddleware,
   adminPage,
@@ -83,6 +84,10 @@ app.post("/v1/messages", async (c) => {
   };
 
   const body = await c.req.json();
+
+  // Strip cch parameter from billing header to improve prompt caching
+  stripBillingHeaderCch(body);
+
   const skipAnthropic = headers["x-ccf-debug-skip-anthropic"] === "1";
   const originalUrl = c.req.url;
 
