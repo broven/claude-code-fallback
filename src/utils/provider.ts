@@ -126,6 +126,16 @@ export async function tryProvider(
 
       if (shouldRetry && attempts < maxRetries) {
         console.warn(`[Provider: ${provider.name}] Request failed with status ${response.status}. Retrying...`);
+
+        if (config.debug) {
+          try {
+            const errorText = await response.clone().text();
+            console.warn(`[Provider: ${provider.name}] Debug Error Response:`, errorText);
+          } catch (e) {
+            console.warn(`[Provider: ${provider.name}] Failed to read error response for debugging`);
+          }
+        }
+
         attempts++;
         continue;
       }
