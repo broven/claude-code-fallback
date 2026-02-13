@@ -323,4 +323,25 @@ describe("rectifyAnthropicRequest", () => {
 
     expect(result.applied).toBe(false);
   });
+
+  it("removes signature fields from system blocks", () => {
+    const body = {
+      model: "claude-test",
+      system: [
+        { type: "text", text: "System prompt", signature: "sys-sig" }
+      ],
+      messages: [
+        {
+          role: "user",
+          content: [{ type: "text", text: "Hello" }],
+        },
+      ],
+    };
+
+    const result = rectifyAnthropicRequest(body);
+
+    expect(result.applied).toBe(true);
+    expect(result.removedSignatureFields).toBe(1);
+    expect(body.system[0].signature).toBeUndefined();
+  });
 });

@@ -104,58 +104,30 @@ export function rectifyAnthropicRequest(
     removedSignatureFields: 0,
   };
 
-  const messages = body.messages;
-  if (!Array.isArray(messages)) {
-    return result;
-  }
-
   // Check top-level thinking removal BEFORE modifying content
   const shouldRemoveThinking = shouldRemoveTopLevelThinking(body);
 
-  // Process each message's content
-  for (const msg of messages) {
-    const content = msg.content;
-    if (!Array.isArray(content)) {
-      continue;
+  // Process system messages if they are an array of blocks
+  if (Array.isArray(body.system)) {
+    const { modified, newContent } = processContentBlocks(body.system, result);
+    if (modified) {
+      body.system = newContent;
     }
+  }
 
-    const newContent: any[] = [];
-    let contentModified = false;
-
-    for (const block of content) {
-      const blockType = block?.type;
-
-      // Remove thinking blocks
-      if (blockType === "thinking") {
-        result.removedThinkingBlocks++;
-        result.applied = true;
-        contentModified = true;
+  const messages = body.messages;
+  if (Array.isArray(messages)) {
+    // Process each message's content
+    for (const msg of messages) {
+      const content = msg.content;
+      if (!Array.isArray(content)) {
         continue;
       }
 
-      // Remove redacted_thinking blocks
-      if (blockType === "redacted_thinking") {
-        result.removedRedactedThinkingBlocks++;
-        result.applied = true;
-        contentModified = true;
-        continue;
+      const { modified, newContent } = processContentBlocks(content, result);
+      if (modified) {
+        msg.content = newContent;
       }
-
-      // Remove signature field from non-thinking blocks
-      if (block?.signature !== undefined) {
-        const { signature, ...blockWithoutSignature } = block;
-        newContent.push(blockWithoutSignature);
-        result.removedSignatureFields++;
-        result.applied = true;
-        contentModified = true;
-        continue;
-      }
-
-      newContent.push(block);
-    }
-
-    if (contentModified) {
-      msg.content = newContent;
     }
   }
 
@@ -166,6 +138,51 @@ export function rectifyAnthropicRequest(
   }
 
   return result;
+}
+
+/**
+ * Helper to process a list of content blocks and remove prohibited items
+ */
+function processContentBlocks(
+  content: any[],
+  result: RectifyResult,
+): { modified: boolean; newContent: any[] } {
+  const newContent: any[] = [];
+  let modified = false;
+
+  for (const block of content) {
+    const blockType = block?.type;
+
+    // Remove thinking blocks
+    if (blockType === "thinking") {
+      result.removedThinkingBlocks++;
+      result.applied = true;
+      modified = true;
+      continue;
+    }
+
+    // Remove redacted_thinking blocks
+    if (blockType === "redacted_thinking") {
+      result.removedRedactedThinkingBlocks++;
+      result.applied = true;
+      modified = true;
+      continue;
+    }
+
+    // Remove signature field from non-thinking blocks
+    if (block?.signature !== undefined) {
+      const { signature, ...blockWithoutSignature } = block;
+      newContent.push(blockWithoutSignature);
+      result.removedSignatureFields++;
+      result.applied = true;
+      modified = true;
+      continue;
+    }
+
+    newContent.push(block);
+  }
+
+  return { modified, newContent };
 }
 
 /**
