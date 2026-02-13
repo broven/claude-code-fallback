@@ -10,7 +10,7 @@ export default function Dashboard() {
 
   const handleLogout = () => {
     localStorage.removeItem("admin_token");
-    navigate("/login");
+    navigate("/admin/login");
   };
 
   return (
