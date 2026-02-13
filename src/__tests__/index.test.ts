@@ -819,6 +819,66 @@ describe('Main Application', () => {
       expect(state.consecutiveFailures).toBe(4);
     });
 
+    it('safety valve applies signature rectification on 400 invalid signature error', async () => {
+      const now = Date.now();
+      const env = createMockBindings({
+        kvData: {
+          'provider-state:anthropic-primary': JSON.stringify({
+            consecutiveFailures: 3,
+            lastFailure: now,
+            lastSuccess: null,
+            cooldownUntil: now + 30000,
+          }),
+          'provider-state:openrouter': JSON.stringify({
+            consecutiveFailures: 10,
+            lastFailure: now,
+            lastSuccess: null,
+            cooldownUntil: now + 300000,
+          }),
+          providers: JSON.stringify([validProvider]),
+        },
+      });
+
+      let attemptCount = 0;
+      globalThis.fetch = vi.fn((url, options: any) => {
+        attemptCount++;
+        if (attemptCount === 1) {
+          // First attempt: return 400 with invalid signature
+          return Promise.resolve(createErrorResponse(400, {
+            type: 'error',
+            error: {
+              type: 'invalid_request_error',
+              message: 'messages.1.content.0: invalid signature in thinking block'
+            }
+          }));
+        } else {
+          // Second attempt (retry): should be successful
+          return Promise.resolve(createSuccessResponse(successResponse));
+        }
+      }) as typeof fetch;
+
+      // Request MUST have thinking block for rectification to apply
+      const requestWithThinking = {
+        model: 'claude-3-7-sonnet-20250219',
+        messages: [
+          { role: 'user', content: 'hello' },
+          {
+            role: 'assistant',
+            content: [
+              { type: 'thinking', signature: 'invalid', thinking: 'hmm' }
+            ]
+          },
+          { role: 'user', content: 'follow up' }
+        ]
+      };
+
+      const request = createProxyRequest(requestWithThinking);
+      const response = await app.fetch(request, env);
+
+      expect(response.status).toBe(200);
+      expect(attemptCount).toBe(2);
+    });
+
     it('first failure does not cause cooldown (provider still available next request)', async () => {
       const env = createMockBindings({
         kvData: { providers: JSON.stringify([validProvider]) },
