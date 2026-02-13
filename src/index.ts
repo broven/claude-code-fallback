@@ -18,6 +18,8 @@ import {
   postAnthropicStatus,
   getRectifierConfig,
   postRectifierConfig,
+  getProviderStates,
+  resetProviderState,
 } from "./admin";
 import {
   isProviderAvailable,
@@ -51,6 +53,8 @@ app.get("/admin/anthropic-status", authMiddleware, getAnthropicStatus);
 app.post("/admin/anthropic-status", authMiddleware, postAnthropicStatus);
 app.get("/admin/rectifier", authMiddleware, getRectifierConfig);
 app.post("/admin/rectifier", authMiddleware, postRectifierConfig);
+app.get("/admin/provider-states", authMiddleware, getProviderStates);
+app.post("/admin/provider-states/:name/reset", authMiddleware, resetProviderState);
 
 // Main proxy endpoint
 app.post("/v1/messages", async (c) => {

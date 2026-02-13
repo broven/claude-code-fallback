@@ -1,5 +1,5 @@
 import { Context, Next } from 'hono';
-import { Bindings, ProviderConfig, TokenConfig } from './types';
+import { Bindings, ProviderConfig, ProviderState, TokenConfig } from './types';
 import {
   getRawConfig,
   saveConfig,
@@ -501,6 +501,38 @@ export async function adminPage(c: Context<{ Bindings: Bindings }>) {
       font-weight: 500;
       vertical-align: middle;
     }
+    /* Circuit breaker status */
+    .cb-status {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 12px;
+      padding: 3px 10px;
+      border-radius: 12px;
+      margin-top: 6px;
+    }
+    .cb-status.healthy {
+      background: #d4edda;
+      color: #155724;
+    }
+    .cb-status.cooldown {
+      background: #f8d7da;
+      color: #721c24;
+    }
+    .cb-status .cb-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      display: inline-block;
+    }
+    .cb-status.healthy .cb-dot { background: #27ae60; }
+    .cb-status.cooldown .cb-dot { background: #e74c3c; }
+    .cb-status .cb-countdown { font-variant-numeric: tabular-nums; }
+    .cb-failures {
+      font-size: 11px;
+      color: #888;
+      margin-top: 2px;
+    }
   </style>
 </head>
 <body>
@@ -655,6 +687,7 @@ export async function adminPage(c: Context<{ Bindings: Bindings }>) {
     let providers = [];
     let tokenConfigs = [];
     var anthropicDisabled = ${anthropicDisabled};
+    var providerStates = {};
 
     try {
       providers = JSON.parse(${JSON.stringify(config)});
@@ -801,6 +834,7 @@ export async function adminPage(c: Context<{ Bindings: Bindings }>) {
               '<span class="anthropic-badge">PRIMARY</span>' +
             '</div>' +
             '<div class="card-subtitle">https://api.anthropic.com/v1/messages</div>' +
+            renderCbStatus('anthropic-primary') +
           '</div>' +
           '<div class="card-actions">' +
             '<label class="toggle-switch" title="' + (anthropicDisabled ? 'Enable' : 'Disable') + ' provider">' +
@@ -837,6 +871,7 @@ export async function adminPage(c: Context<{ Bindings: Bindings }>) {
                 '<div class="card-subtitle">' + escapeHtml(p.baseUrl) + '</div>' +
                 (p.format === 'openai' ? '<div class="card-meta">Format: OpenAI</div>' : '') +
                 (mappingCount > 0 ? '<div class="card-meta">Mappings: ' + mappingCount + '</div>' : '') +
+                renderCbStatus(p.name) +
               '</div>' +
               '<div class="card-actions">' +
                 '<label class="toggle-switch" title="' + (p.disabled ? 'Enable' : 'Disable') + ' provider">' +
@@ -1317,9 +1352,94 @@ export async function adminPage(c: Context<{ Bindings: Bindings }>) {
       window.location.href = '/admin/login';
     }
 
+    // ---- Circuit Breaker Status ----
+    async function fetchProviderStates() {
+      try {
+        var res = await fetch('/admin/provider-states', {
+          headers: { 'Authorization': 'Bearer ' + TOKEN }
+        });
+        if (res.ok) {
+          providerStates = await res.json();
+          renderProviders();
+        }
+      } catch (e) {
+        // Silently fail - status is informational
+      }
+    }
+
+    function formatCountdown(ms) {
+      if (ms <= 0) return 'recovering...';
+      var totalSec = Math.ceil(ms / 1000);
+      var min = Math.floor(totalSec / 60);
+      var sec = totalSec % 60;
+      if (min > 0) return min + 'm ' + sec + 's';
+      return sec + 's';
+    }
+
+    async function resetCbState(name) {
+      try {
+        var res = await fetch('/admin/provider-states/' + encodeURIComponent(name) + '/reset', {
+          method: 'POST',
+          headers: { 'Authorization': 'Bearer ' + TOKEN }
+        });
+        if (res.ok) {
+          showStatus('Circuit breaker reset for ' + name);
+          fetchProviderStates();
+        } else {
+          showStatus('Failed to reset: ' + await res.text(), true);
+        }
+      } catch (e) {
+        showStatus('Error: ' + e.message, true);
+      }
+    }
+
+    function renderCbStatus(name) {
+      var state = providerStates[name];
+      if (!state) return '';
+      var now = Date.now();
+      var inCooldown = state.cooldownUntil && state.cooldownUntil > now;
+      if (inCooldown) {
+        var remaining = state.cooldownUntil - now;
+        return '<div class="cb-status cooldown" data-cb-name="' + escapeHtml(name) + '" data-cb-until="' + state.cooldownUntil + '">' +
+          '<span class="cb-dot"></span>' +
+          'In Cooldown <span class="cb-countdown">' + formatCountdown(remaining) + '</span>' +
+          ' <button class="btn btn-sm" style="padding:1px 8px;font-size:11px;background:#fff;color:#721c24;border:1px solid #721c24;margin-left:4px;" onclick="resetCbState(\'' + escapeHtml(name) + '\')">Reset</button>' +
+        '</div>' +
+        '<div class="cb-failures">' + state.consecutiveFailures + ' consecutive failures</div>';
+      }
+      if (state.consecutiveFailures > 0) {
+        return '<div class="cb-status healthy">' +
+          '<span class="cb-dot"></span>Healthy' +
+        '</div>' +
+        '<div class="cb-failures">' + state.consecutiveFailures + ' consecutive failures</div>';
+      }
+      return '<div class="cb-status healthy"><span class="cb-dot"></span>Healthy</div>';
+    }
+
     // ---- Init ----
     renderProviders();
     renderTokens();
+    fetchProviderStates();
+
+    // Tick countdowns every second
+    setInterval(function() {
+      var els = document.querySelectorAll('[data-cb-until]');
+      var now = Date.now();
+      var needsRefresh = false;
+      for (var i = 0; i < els.length; i++) {
+        var until = parseInt(els[i].getAttribute('data-cb-until'), 10);
+        var remaining = until - now;
+        var countdown = els[i].querySelector('.cb-countdown');
+        if (remaining <= 0) {
+          needsRefresh = true;
+        } else if (countdown) {
+          countdown.textContent = formatCountdown(remaining);
+        }
+      }
+      if (needsRefresh) {
+        fetchProviderStates();
+      }
+    }, 1000);
   </script>
 </body>
 </html>`;
@@ -1654,6 +1774,54 @@ export async function postRectifierConfig(c: Context<{ Bindings: Bindings }>) {
       400,
     );
   }
+}
+
+/**
+ * GET /admin/provider-states - Get circuit breaker state for all providers
+ */
+export async function getProviderStates(c: Context<{ Bindings: Bindings }>) {
+  const config = await getRawConfig(c.env);
+  let providers: { name: string }[] = [];
+  try {
+    providers = JSON.parse(config);
+  } catch {
+    providers = [];
+  }
+
+  const names = ['anthropic-primary', ...providers.map((p) => p.name)];
+
+  const states: Record<string, ProviderState> = {};
+  for (const name of names) {
+    const key = `provider-state:${name}`;
+    const raw = await c.env.CONFIG_KV.get(key);
+    if (raw) {
+      try {
+        states[name] = JSON.parse(raw);
+      } catch {
+        states[name] = { consecutiveFailures: 0, lastFailure: null, lastSuccess: null, cooldownUntil: null };
+      }
+    } else {
+      states[name] = { consecutiveFailures: 0, lastFailure: null, lastSuccess: null, cooldownUntil: null };
+    }
+  }
+
+  return c.json(states);
+}
+
+/**
+ * POST /admin/provider-states/:name/reset - Reset circuit breaker state for a provider
+ */
+export async function resetProviderState(c: Context<{ Bindings: Bindings }>) {
+  const name = c.req.param('name');
+  const key = `provider-state:${name}`;
+  const defaultState: ProviderState = {
+    consecutiveFailures: 0,
+    lastFailure: null,
+    lastSuccess: null,
+    cooldownUntil: null,
+  };
+  await c.env.CONFIG_KV.put(key, JSON.stringify(defaultState));
+  return c.json({ success: true });
 }
 
 /**
