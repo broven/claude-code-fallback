@@ -33,18 +33,22 @@ Implements a **Sliding Window Circuit Breaker (Plan C)** to track provider healt
 - **`src/utils/circuit-breaker.ts`** — Sliding window circuit breaker implementation with tiered backoff.
 - **`src/types.ts`** — TypeScript interfaces for `ProviderConfig`, `AppConfig`, `ProviderState`, and bindings.
 - **`src/utils/provider.ts`** — Implements provider request logic with model mapping and header filtering.
+- **`src/utils/rectifier/`** — Request rectification module. Auto-fixes incompatible requests (e.g., invalid thinking signatures, budget issues) and retries.
+  - `thinking-signature.ts` — Detects and strips invalid `thinking`/`redacted_thinking` blocks and `signature` fields.
+  - `thinking-budget.ts` — Detects and adjusts `budget_tokens`/`max_tokens` values.
 - **`frontend/`** — React source code for the admin panel.
 - **`scripts/build-frontend.sh`** — Builds the frontend and embeds it into `src/admin-html.ts`.
 
 ### Fallback Logic
 
 1. Try primary Anthropic API (`https://api.anthropic.com/v1/messages`)
-2. On 401, 403, 429, or 5xx errors:
+2. On 400 errors: **Rectifier** auto-detects thinking signature / budget issues, strips problematic blocks, and retries with 120s timeout. If rectifier retry also fails/times out, continues to fallback providers.
+3. On 401, 403, 429, or 5xx errors:
    - Check circuit breaker state for each provider.
    - Skip providers currently in cooldown.
    - Iterate through available providers in configured order.
    - If all providers in cooldown, trigger **Safety Valve** (try least recently failed).
-3. Return first successful response or last error.
+4. Return first successful response or last error.
 
 ### KV Configuration
 
@@ -157,7 +161,7 @@ Optional fields:
 
 ## Testing
 
-The project has a comprehensive test suite with **314 tests** and **96.54% coverage**.
+The project has a comprehensive test suite with **367 tests**.
 
 ### Test Structure
 
@@ -165,7 +169,7 @@ The project has a comprehensive test suite with **314 tests** and **96.54% cover
 src/__tests__/
   fixtures/         # Test data and mock responses
   mocks/            # Mock KV and fetch implementations
-  utils/            # Unit tests (headers, provider, circuit-breaker)
+  utils/            # Unit tests (headers, provider, circuit-breaker, rectifier)
   config.test.ts    # Config module tests
   admin.test.ts     # Admin panel tests
   index.test.ts     # Integration tests
