@@ -16,6 +16,8 @@ import {
   testProvider,
   getAnthropicStatus,
   postAnthropicStatus,
+  getRectifierConfig,
+  postRectifierConfig,
   getProviderStates,
   resetProviderState,
 } from "./admin";
@@ -49,6 +51,8 @@ app.post("/admin/settings", authMiddleware, postSettings);
 app.post("/admin/test-provider", authMiddleware, testProvider);
 app.get("/admin/anthropic-status", authMiddleware, getAnthropicStatus);
 app.post("/admin/anthropic-status", authMiddleware, postAnthropicStatus);
+app.get("/admin/rectifier", authMiddleware, getRectifierConfig);
+app.post("/admin/rectifier", authMiddleware, postRectifierConfig);
 app.get("/admin/provider-states", authMiddleware, getProviderStates);
 app.post("/admin/provider-states/:name/reset", authMiddleware, resetProviderState);
 

@@ -5,16 +5,26 @@ import {
   convertOpenAIResponseToAnthropic,
   convertOpenAIStreamToAnthropic,
 } from './format-converter';
+import {
+  shouldRectifyThinkingSignature,
+  rectifyAnthropicRequest,
+  shouldRectifyThinkingBudget,
+  rectifyThinkingBudget,
+} from './rectifier';
 
 /**
  * Attempt a request to a specific fallback provider.
- * Handles model mapping, header filtering, authentication, and format conversion.
+ * Handles model mapping, header filtering, authentication, format conversion, and rectification.
  */
 export async function tryProvider(
   provider: ProviderConfig,
   body: any,
   originalHeaders: Record<string, string>,
   config: AppConfig,
+  options?: {
+    rectifierRetried?: boolean;
+    budgetRectifierRetried?: boolean;
+  },
 ): Promise<Response> {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), 30000);
@@ -94,6 +104,72 @@ export async function tryProvider(
     });
 
     clearTimeout(timeoutId);
+
+    // Check for rectifiable errors on non-OK responses (Anthropic format only)
+    if (!response.ok && format !== 'openai') {
+      const errorText = await response.text();
+
+      // Try to extract error message
+      let errorMessage: string | undefined;
+      try {
+        const errorJson = JSON.parse(errorText);
+        errorMessage =
+          errorJson.error?.message ||
+          errorJson.message ||
+          errorJson.error?.type ||
+          errorText;
+      } catch {
+        errorMessage = errorText;
+      }
+
+      const rectifierConfig = config.rectifier;
+
+      // Thinking Signature Rectifier
+      if (
+        !options?.rectifierRetried &&
+        shouldRectifyThinkingSignature(errorMessage, rectifierConfig)
+      ) {
+        const rectifiedBody = JSON.parse(JSON.stringify(body));
+        rectifiedBody.model = model;
+        const result = rectifyAnthropicRequest(rectifiedBody);
+
+        if (result.applied) {
+          console.log(
+            `[RECT-001] Signature rectification applied for ${name}: removed ${result.removedThinkingBlocks} thinking, ${result.removedRedactedThinkingBlocks} redacted_thinking, ${result.removedSignatureFields} signatures`,
+          );
+          return tryProvider(provider, rectifiedBody, originalHeaders, config, {
+            ...options,
+            rectifierRetried: true,
+          });
+        }
+      }
+
+      // Thinking Budget Rectifier
+      if (
+        !options?.budgetRectifierRetried &&
+        shouldRectifyThinkingBudget(errorMessage, rectifierConfig)
+      ) {
+        const rectifiedBody = JSON.parse(JSON.stringify(body));
+        rectifiedBody.model = model;
+        const result = rectifyThinkingBudget(rectifiedBody);
+
+        if (result.applied) {
+          console.log(
+            `[RECT-002] Budget rectification applied for ${name}: budget_tokens ${result.before.thinkingBudgetTokens} -> ${result.after.thinkingBudgetTokens}, max_tokens ${result.before.maxTokens} -> ${result.after.maxTokens}`,
+          );
+          return tryProvider(provider, rectifiedBody, originalHeaders, config, {
+            ...options,
+            budgetRectifierRetried: true,
+          });
+        }
+      }
+
+      // Return the original error response
+      return new Response(errorText, {
+        status: response.status,
+        headers: response.headers,
+      });
+    }
 
     // Convert response format if provider uses OpenAI format and response is OK
     if (format === 'openai' && response.ok) {

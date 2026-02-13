@@ -28,6 +28,11 @@ const defaultConfig: AppConfig = {
   tokenConfigs: [],
   cooldownDuration: 0,
   anthropicPrimaryDisabled: false,
+  rectifier: {
+    enabled: true,
+    requestThinkingSignature: true,
+    requestThinkingBudget: true,
+  },
 };
 
 describe("tryProvider", () => {
