@@ -5,7 +5,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Commands
 
 - **Dev**: `npm run dev` (runs Wrangler local dev server on port 8787)
-- **Deploy**: `npm run deploy` (deploys to Cloudflare Workers)
+- **Build Frontend**: `npm run build:frontend` (builds the React frontend and embeds it into the Worker)
+- **Deploy**: `npm run deploy` (builds frontend and deploys to Cloudflare Workers)
 - **Type Check**: `npx tsc --noEmit`
 - **Tail Logs**: `npm run tail` (streams production logs from Cloudflare)
 - **Set Secrets**: `npx wrangler secret put ADMIN_TOKEN` (set authentication token)
@@ -17,6 +18,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Cloudflare Workers-based fallback proxy for Claude Code. Intercepts Anthropic API requests and routes to alternative providers when the primary API returns 401, 403, 429, or 5xx errors.
 
+The Admin Panel is built as a **Single Page Application (SPA)** using React, Vite, and Tailwind CSS. It is bundled into a single HTML file and embedded directly into the Worker logic, allowing for a zero-dependency deployment (no separate asset storage required).
+
 Implements a **Sliding Window Circuit Breaker (Plan C)** to track provider health and prevent cascading failures.
 - **State Storage**: `provider-state:{name}` in KV (JSON format).
 - **Tiered Cooldowns**: 0s (<3 failures), 30s (<5 failures), 60s (<10 failures), 300s (10+ failures).
@@ -25,11 +28,13 @@ Implements a **Sliding Window Circuit Breaker (Plan C)** to track provider healt
 ### Core Components
 
 - **`src/index.ts`** — Main Worker entry point. Hono app with routes for `/` (health check), `/v1/messages` (proxy), and `/admin/*` (management).
-- **`src/admin.ts`** — Admin panel and API handlers. Provides HTML UI for managing providers and system settings.
+- **`src/admin.ts`** — Admin panel and API handlers. Serves the React SPA (`ADMIN_HTML`) and handles API requests.
 - **`src/config.ts`** — KV-based configuration loading and saving.
 - **`src/utils/circuit-breaker.ts`** — Sliding window circuit breaker implementation with tiered backoff.
 - **`src/types.ts`** — TypeScript interfaces for `ProviderConfig`, `AppConfig`, `ProviderState`, and bindings.
 - **`src/utils/provider.ts`** — Implements provider request logic with model mapping and header filtering.
+- **`frontend/`** — React source code for the admin panel.
+- **`scripts/build-frontend.sh`** — Builds the frontend and embeds it into `src/admin-html.ts`.
 
 ### Fallback Logic
 

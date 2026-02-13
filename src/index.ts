@@ -60,6 +60,10 @@ app.post("/admin/rectifier", authMiddleware, postRectifierConfig);
 app.get("/admin/provider-states", authMiddleware, getProviderStates);
 app.post("/admin/provider-states/:name/reset", authMiddleware, resetProviderState);
 
+// Catch-all for other admin routes (for SPA routing)
+// Must come after specific API routes but handling auth
+app.get("/admin/*", authMiddleware, adminPage);
+
 // Main proxy endpoint
 app.post("/v1/messages", async (c) => {
   const startTime = Date.now();
