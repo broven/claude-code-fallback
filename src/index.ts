@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import { Bindings } from "./types";
 import { loadConfig } from "./config";
-import { filterHeadersDebugOption, cleanHeaders } from "./utils/headers";
+import { cleanRequestHeaders, cleanHeaders } from "./utils/headers";
 import { tryProvider } from "./utils/provider";
 import {
   authMiddleware,
@@ -152,7 +152,7 @@ app.post("/v1/messages", async (c) => {
 
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), 30000);
-        const filteredHeaders = filterHeadersDebugOption(headers);
+        const filteredHeaders = cleanRequestHeaders(headers);
 
         const response = await fetch("https://api.anthropic.com/v1/messages", {
           method: "POST",
@@ -416,7 +416,7 @@ app.post("/v1/messages", async (c) => {
         if (safeName === anthropicName) {
           const controller = new AbortController();
           const timeoutId = setTimeout(() => controller.abort(), 30000);
-          const filteredHeaders = filterHeadersDebugOption(headers);
+          const filteredHeaders = cleanRequestHeaders(headers);
 
           const response = await fetch("https://api.anthropic.com/v1/messages", {
             method: "POST",

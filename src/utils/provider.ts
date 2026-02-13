@@ -1,4 +1,5 @@
 import { env } from 'hono/adapter';
+import { cleanHeaders } from './headers';
 import { AppConfig, ProviderConfig } from '../types';
 import {
   convertAnthropicToOpenAI,
@@ -79,6 +80,7 @@ export async function tryProvider(
         'x-api-key',
         'authorization',
         'x-ccf-api-key',
+        'accept-encoding',
       ];
 
       // Build request headers
@@ -190,7 +192,7 @@ export async function tryProvider(
         // Return the original error response
         return new Response(errorText, {
           status: response.status,
-          headers: response.headers,
+          headers: cleanHeaders(response.headers),
         });
       }
 

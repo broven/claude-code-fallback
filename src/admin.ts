@@ -221,6 +221,14 @@ async function testSingleModel(
 
     if (provider.headers) {
       Object.assign(headers, provider.headers);
+
+      // Remove unsafe headers that might cause issues with decompression
+      const unsafe = ['accept-encoding', 'host', 'content-length'];
+      Object.keys(headers).forEach((key) => {
+        if (unsafe.includes(key.toLowerCase())) {
+          delete headers[key];
+        }
+      });
     }
 
     let testBody: any = {
