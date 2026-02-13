@@ -1403,7 +1403,7 @@ export async function adminPage(c: Context<{ Bindings: Bindings }>) {
         return '<div class="cb-status cooldown" data-cb-name="' + escapeHtml(name) + '" data-cb-until="' + state.cooldownUntil + '">' +
           '<span class="cb-dot"></span>' +
           'In Cooldown <span class="cb-countdown">' + formatCountdown(remaining) + '</span>' +
-          ' <button class="btn btn-sm" style="padding:1px 8px;font-size:11px;background:#fff;color:#721c24;border:1px solid #721c24;margin-left:4px;" onclick="resetCbState(\'' + escapeHtml(name) + '\')">Reset</button>' +
+          ' <button class="btn btn-sm" style="padding:1px 8px;font-size:11px;background:#fff;color:#721c24;border:1px solid #721c24;margin-left:4px;" onclick="resetCbState(&quot;' + escapeHtml(name) + '&quot;)">Reset</button>' +
         '</div>' +
         '<div class="cb-failures">' + state.consecutiveFailures + ' consecutive failures</div>';
       }
