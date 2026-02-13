@@ -445,17 +445,98 @@ app.post("/v1/messages", async (c) => {
             });
           }
 
-          const errorBody = await response.text();
+          let errorBody = await response.text();
+          let finalStatus = response.status;
+          let finalHeaders = response.headers;
+
+          // Check for rectification on 400 errors (e.g. invalid thinking signature)
+          if (finalStatus === 400) {
+            let errorMessage: string | undefined;
+            try {
+              const errorJson = JSON.parse(errorBody);
+              errorMessage =
+                errorJson.error?.message ||
+                errorJson.message ||
+                errorJson.error?.type ||
+                errorBody;
+            } catch {
+              errorMessage = errorBody;
+            }
+
+            if (shouldRectifyThinkingSignature(errorMessage, config.rectifier)) {
+              logger.info('rectifier.attempt', 'Applying signature rectification for Anthropic primary (Safety Valve)', {
+                errorMessage
+              });
+
+              const rectifiedBody = JSON.parse(JSON.stringify(body));
+              const result = rectifyAnthropicRequest(rectifiedBody);
+
+              if (result.applied) {
+                logger.info('rectifier.applied', 'Signature rectification applied (Safety Valve)', result);
+
+                // Retry request
+                const retryController = new AbortController();
+                const retryTimeoutId = setTimeout(() => retryController.abort(), 30000);
+
+                try {
+                  const retryResponse = await fetch("https://api.anthropic.com/v1/messages", {
+                    method: "POST",
+                    headers: filteredHeaders,
+                    body: JSON.stringify(rectifiedBody),
+                    signal: retryController.signal,
+                  });
+
+                  clearTimeout(retryTimeoutId);
+
+                  if (retryResponse.ok) {
+                    logger.info('provider.success', 'Anthropic API request successful after rectification (Safety Valve)', {
+                      provider: anthropicName,
+                      model: body.model,
+                      status: retryResponse.status,
+                      latency: Date.now() - attemptStart,
+                    });
+                    await markProviderSuccess(anthropicName, c.env);
+                    const cleanedHeaders = cleanHeaders(retryResponse.headers);
+                    const responseHeaders = new Headers(cleanedHeaders);
+                    responseHeaders.set('ccr-request-id', requestId);
+                    return new Response(retryResponse.body, {
+                      status: retryResponse.status,
+                      headers: responseHeaders,
+                    });
+                  }
+
+                  // If retry fails, update variables for final error response
+                  errorBody = await retryResponse.text();
+                  finalStatus = retryResponse.status;
+                  finalHeaders = retryResponse.headers;
+
+                  logger.warn('provider.failure', 'Anthropic API request failed after rectification (Safety Valve)', {
+                    provider: anthropicName,
+                    model: body.model,
+                    status: finalStatus,
+                    latency: Date.now() - attemptStart,
+                  });
+                } catch (retryError: any) {
+                  logger.error('provider.timeout', 'Error retrying Anthropic request after rectification (Safety Valve)', {
+                    provider: anthropicName,
+                    model: body.model,
+                    error: retryError.message,
+                  });
+                }
+              }
+            }
+          }
+
           logger.warn('provider.failure', 'Safety valve request failed', {
             provider: anthropicName,
             model: body.model,
-            status: response.status,
+            status: finalStatus,
             latency,
           });
           await markProviderFailed(anthropicName, cooldownDuration, c.env);
           lastErrorResponse = new Response(errorBody, {
-            status: response.status,
-            headers: cleanHeaders(response.headers),
+            status: finalStatus,
+            headers: cleanHeaders(finalHeaders),
           });
         } else {
           const safeProvider = config.providers.find(p => p.name === safeName);
