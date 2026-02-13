@@ -184,9 +184,9 @@ describe("loginPage", () => {
     expect(response.status).toBe(200);
     expect(response.headers.get("content-type")).toContain("text/html");
     const html = await response.text();
-    expect(html).toContain("Login");
-    expect(html).toContain('id="tokenInput"');
-    expect(html).toContain("localStorage");
+    // The new React app is served as a static HTML shell
+    expect(html).toContain('<div id="root">');
+    expect(html).toContain("<!doctype html>");
   });
 });
 
@@ -206,57 +206,15 @@ describe("adminPage", () => {
     expect(response.headers.get("content-type")).toContain("text/html");
   });
 
-  it("includes admin page title", async () => {
+  it("returns the React app shell", async () => {
     const env = createMockBindings({ adminToken: "test-token" });
     const request = createRequest("/admin", { token: "test-token" });
 
     const response = await app.fetch(request, env);
     const html = await response.text();
 
-    expect(html).toContain("Claude Code Fallback");
-    expect(html).toContain("Admin");
-  });
-
-  it("includes token in rendered page for client-side use", async () => {
-    const env = createMockBindings({ adminToken: "test-token" });
-    const request = createRequest("/admin", { token: "test-token" });
-
-    const response = await app.fetch(request, env);
-    const html = await response.text();
-
-    expect(html).toContain("test-token");
-  });
-
-  it("includes current config in rendered page", async () => {
-    const env = createMockBindings({
-      adminToken: "test-token",
-      kvData: { providers: JSON.stringify([validProvider]) },
-    });
-    const request = createRequest("/admin", { token: "test-token" });
-
-    const response = await app.fetch(request, env);
-    const html = await response.text();
-
-    expect(html).toContain("openrouter");
-  });
-
-  it("escapes HTML in config data", async () => {
-    const providerWithXss = {
-      name: '<script>alert("xss")</script>',
-      baseUrl: "https://api.example.com",
-      apiKey: "test-key",
-    };
-    const env = createMockBindings({
-      adminToken: "test-token",
-      kvData: { providers: JSON.stringify([providerWithXss]) },
-    });
-    const request = createRequest("/admin", { token: "test-token" });
-
-    const response = await app.fetch(request, env);
-    const html = await response.text();
-
-    expect(html).not.toContain('<script>alert("xss")</script>');
-    expect(html).toContain("&lt;script&gt;");
+    expect(html).toContain('<div id="root">');
+    expect(html).toContain("<!doctype html>");
   });
 
   it("returns 200 status", async () => {
@@ -266,151 +224,6 @@ describe("adminPage", () => {
     const response = await app.fetch(request, env);
 
     expect(response.status).toBe(200);
-  });
-
-  it("uses sectioned layout instead of tabs", async () => {
-    const env = createMockBindings({ adminToken: "test-token" });
-    const request = createRequest("/admin", { token: "test-token" });
-
-    const response = await app.fetch(request, env);
-    const html = await response.text();
-
-    // Should have sections, not tabs
-    expect(html).toContain("tokens-section");
-    expect(html).toContain("providers-section");
-    expect(html).toContain("settings-section");
-    expect(html).toContain("json-section");
-    // Should not have tab navigation
-    expect(html).not.toContain("switchView('visual')");
-    expect(html).not.toContain("switchView('tokens')");
-  });
-
-  it("includes provider modal", async () => {
-    const env = createMockBindings({ adminToken: "test-token" });
-    const request = createRequest("/admin", { token: "test-token" });
-
-    const response = await app.fetch(request, env);
-    const html = await response.text();
-
-    expect(html).toContain("providerModal");
-    expect(html).toContain("Test Connection");
-  });
-
-  it("does not include authHeader input in provider modal", async () => {
-    const env = createMockBindings({ adminToken: "test-token" });
-    const request = createRequest("/admin", { token: "test-token" });
-
-    const response = await app.fetch(request, env);
-    const html = await response.text();
-
-    expect(html).not.toContain("providerAuthHeader");
-    expect(html).not.toContain("Auth Header");
-  });
-
-  it("uses select dropdown for model mapping source models", async () => {
-    const env = createMockBindings({ adminToken: "test-token" });
-    const request = createRequest("/admin", { token: "test-token" });
-
-    const response = await app.fetch(request, env);
-    const html = await response.text();
-
-    // Should define CLAUDE_MODELS array in JS
-    expect(html).toContain("CLAUDE_MODELS");
-    expect(html).toContain("claude-sonnet-4-5-20250929");
-    expect(html).toContain("claude-opus-4-20250514");
-    expect(html).toContain("claude-haiku-4-5-20251001");
-    // renderModelMappings should use <select> not <input> for source
-    expect(html).toContain("<select");
-    expect(html).toContain("Select model");
-  });
-
-  it("does not show Auth: in provider card meta", async () => {
-    const env = createMockBindings({
-      adminToken: "test-token",
-      kvData: { providers: JSON.stringify([validProvider]) },
-    });
-    const request = createRequest("/admin", { token: "test-token" });
-
-    const response = await app.fetch(request, env);
-    const html = await response.text();
-
-    // The card meta should not show Auth: prefix
-    expect(html).not.toContain("'Auth: '");
-  });
-
-  it("includes drag-and-drop support on provider cards", async () => {
-    const env = createMockBindings({
-      adminToken: "test-token",
-      kvData: { providers: JSON.stringify([validProvider]) },
-    });
-    const request = createRequest("/admin", { token: "test-token" });
-
-    const response = await app.fetch(request, env);
-    const html = await response.text();
-
-    expect(html).toContain('draggable="true"');
-    expect(html).toContain("onDragStart");
-    expect(html).toContain("onDrop");
-    expect(html).toContain("drag-handle");
-    expect(html).toContain("priority-badge");
-  });
-
-  it("includes toggle switch for provider enable/disable", async () => {
-    const env = createMockBindings({
-      adminToken: "test-token",
-      kvData: { providers: JSON.stringify(multipleProviders) },
-    });
-    const request = createRequest("/admin", { token: "test-token" });
-
-    const response = await app.fetch(request, env);
-    const html = await response.text();
-
-    expect(html).toContain("toggle-switch");
-    expect(html).toContain("toggleProvider");
-    expect(html).toContain("toggleAnthropicPrimary");
-    expect(html).toContain("reorderProvider");
-  });
-
-  it("includes touch drag support", async () => {
-    const env = createMockBindings({ adminToken: "test-token" });
-    const request = createRequest("/admin", { token: "test-token" });
-
-    const response = await app.fetch(request, env);
-    const html = await response.text();
-
-    expect(html).toContain("onTouchStart");
-    expect(html).toContain("onTouchMove");
-    expect(html).toContain("onTouchEnd");
-  });
-});
-
-describe("adminPage token persistence", () => {
-  let app: Hono<{ Bindings: Bindings }>;
-
-  beforeEach(() => {
-    app = createTestApp();
-  });
-
-  it("includes localStorage save logic in admin page", async () => {
-    const env = createMockBindings({ adminToken: "valid-token" });
-    const request = createRequest("/admin", { token: "valid-token" });
-
-    const response = await app.fetch(request, env);
-    const html = await response.text();
-
-    expect(html).toContain("localStorage.setItem");
-    expect(html).toContain("admin_token");
-  });
-
-  it("uses Authorization header for API calls instead of query params", async () => {
-    const env = createMockBindings({ adminToken: "valid-token" });
-    const request = createRequest("/admin", { token: "valid-token" });
-
-    const response = await app.fetch(request, env);
-    const html = await response.text();
-
-    // Should use Authorization header in fetch calls
-    expect(html).toContain("'Authorization': 'Bearer ' + TOKEN");
   });
 });
 
