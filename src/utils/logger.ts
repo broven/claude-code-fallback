@@ -19,6 +19,8 @@ export type LogEvent =
   | 'safety_valve.triggered'
   | 'auth.failure'
   | 'config.load'
+  | 'rectifier.attempt'
+  | 'rectifier.applied'
   | 'request.debug_curl';
 
 interface BaseLogData {
