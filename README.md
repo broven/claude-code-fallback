@@ -5,23 +5,10 @@
 A fallback proxy for Claude Code (or any Anthropic API client). When you hit rate limits or API errors, automatically routes to alternative providers — just like [Vercel](https://vercel.com/changelog/claude-code-max-via-ai-gateway-available-now-for-claude-code) and [OpenRouter](https://openrouter.ai/docs/guides/guides/claude-code-integration) does.
 
 [![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/broven/claude-code-fallback)
-
-## Features
-
-- **Automatic Failover** — Seamlessly routes to fallback providers on 401/403/429/5xx errors
-- **Request Auto-Rectification** — Automatically detects and fixes incompatible request formats (thinking signatures, budget tokens, tool-use blocks), then retries
-- **OpenAI-Compatible Provider Support** — Use any OpenAI-format API (OpenRouter, Azure, etc.) as a fallback with automatic request/response conversion
-- **Sliding Window Circuit Breaker** — Tiered cooldowns with safety valve to prevent cascading failures while ensuring service continuity
-- **React Admin Panel** — Web-based dashboard with login authentication, visual provider management, and real-time circuit breaker status
-- **Structured Observability** — JSON-formatted logs with unique request IDs for end-to-end tracing via `npm run tail`
-- **Provider Retry with Exponential Backoff** — Configurable per-provider retry count with exponential delay
-- **Prompt Cache Optimization** — Strips volatile billing header parameters to improve Anthropic prompt cache hit rates
-
-[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/broven/claude-code-fallback)
 ## Why This Exists
 
 When using Claude Code or other Anthropic API clients, you might encounter:
-- **Rate limits (429)** — Your API quota is exhausted
+- Claude subscription **Rate limits (429)** — Your API quota is exhausted
 - **Service errors (5xx)** — Temporary Anthropic API downtime
 Instead of manually switching between providers, this proxy automatically fails over to your configured alternatives.
 
@@ -38,6 +25,20 @@ Claude Code ──► Fallback Proxy ──► Anthropic API
 ```
 
 The proxy intercepts API requests. On 400 errors, the **Rectifier** automatically detects and fixes incompatible request fields (e.g., invalid thinking signatures, budget token issues) and retries. On 401, 403, 429, or 5xx errors, requests are forwarded to fallback providers in order until one succeeds.
+
+
+## Features
+
+- **Automatic Failover** — Seamlessly routes to fallback providers on 401/403/429/5xx errors
+- **Request Auto-Rectification** — Automatically detects and fixes incompatible request formats (thinking signatures, budget tokens, tool-use blocks), then retries
+- **OpenAI-Compatible Provider Support** — Use any OpenAI-format API (OpenRouter, Azure, etc.) as a fallback with automatic request/response conversion
+- **Sliding Window Circuit Breaker** — Tiered cooldowns with safety valve to prevent cascading failures while ensuring service continuity
+- **React Admin Panel** — Web-based dashboard with login authentication, visual provider management, and real-time circuit breaker status
+- **Structured Observability** — JSON-formatted logs with unique request IDs for end-to-end tracing via `npm run tail`
+- **Provider Retry with Exponential Backoff** — Configurable per-provider retry count with exponential delay
+- **Prompt Cache Optimization** — Strips volatile billing header parameters to improve Anthropic prompt cache hit rates
+
+[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/broven/claude-code-fallback)
 
 ### Fallback Strategy
 
