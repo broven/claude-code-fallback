@@ -1012,4 +1012,113 @@ describe('Main Application', () => {
       expect((data.error as { type: string; message: string }).type).toBe('fallback_exhausted');
     });
   });
+
+  describe('Provider disable/enable', () => {
+    function createProxyRequest(body: unknown = validMessageRequest, headers: Record<string, string> = {}) {
+      return new Request('http://localhost/v1/messages', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': 'test-anthropic-key',
+          'anthropic-version': '2023-06-01',
+          ...headers,
+        },
+        body: JSON.stringify(body),
+      });
+    }
+
+    it('skips Anthropic primary when disabled in KV', async () => {
+      let anthropicCalled = false;
+      globalThis.fetch = vi.fn((url: RequestInfo | URL) => {
+        const urlStr = url.toString();
+        if (urlStr.includes('api.anthropic.com')) {
+          anthropicCalled = true;
+        }
+        return Promise.resolve(createSuccessResponse(successResponse));
+      }) as typeof fetch;
+      const env = createMockBindings({
+        kvData: {
+          providers: JSON.stringify([validProvider]),
+          anthropic_primary_disabled: 'true',
+        },
+      });
+      const request = createProxyRequest();
+
+      await app.fetch(request, env);
+
+      expect(anthropicCalled).toBe(false);
+    });
+
+    it('uses fallback providers when Anthropic primary is disabled', async () => {
+      let fallbackCalled = false;
+      globalThis.fetch = vi.fn((url: RequestInfo | URL) => {
+        const urlStr = url.toString();
+        if (!urlStr.includes('api.anthropic.com')) {
+          fallbackCalled = true;
+        }
+        return Promise.resolve(createSuccessResponse(successResponse));
+      }) as typeof fetch;
+      const env = createMockBindings({
+        kvData: {
+          providers: JSON.stringify([validProvider]),
+          anthropic_primary_disabled: 'true',
+        },
+      });
+      const request = createProxyRequest();
+
+      const response = await app.fetch(request, env);
+
+      expect(response.status).toBe(200);
+      expect(fallbackCalled).toBe(true);
+    });
+
+    it('skips disabled fallback provider', async () => {
+      const disabledProvider = { ...validProvider, name: 'disabled-one', disabled: true };
+      const enabledProvider = { ...minimalProvider, name: 'enabled-one' };
+
+      const callOrder: string[] = [];
+      globalThis.fetch = vi.fn((url: RequestInfo | URL) => {
+        const urlStr = url.toString();
+        if (urlStr.includes('api.anthropic.com')) {
+          callOrder.push('anthropic');
+          return Promise.resolve(createErrorResponse(429, errorResponses.rateLimited));
+        }
+        if (urlStr.includes(disabledProvider.baseUrl)) {
+          callOrder.push('disabled-one');
+          return Promise.resolve(createSuccessResponse(successResponse));
+        }
+        if (urlStr.includes(enabledProvider.baseUrl)) {
+          callOrder.push('enabled-one');
+          return Promise.resolve(createSuccessResponse(successResponse));
+        }
+        return Promise.resolve(createSuccessResponse(successResponse));
+      }) as typeof fetch;
+      const env = createMockBindings({
+        kvData: { providers: JSON.stringify([disabledProvider, enabledProvider]) },
+      });
+      const request = createProxyRequest();
+
+      await app.fetch(request, env);
+
+      expect(callOrder).toEqual(['anthropic', 'enabled-one']);
+    });
+
+    it('returns 502 when Anthropic disabled and all fallback providers disabled', async () => {
+      const disabledProvider = { ...validProvider, disabled: true };
+      globalThis.fetch = vi.fn().mockResolvedValue(createSuccessResponse(successResponse));
+      const env = createMockBindings({
+        kvData: {
+          providers: JSON.stringify([disabledProvider]),
+          anthropic_primary_disabled: 'true',
+        },
+      });
+      const request = createProxyRequest();
+
+      const response = await app.fetch(request, env);
+      const data = (await response.json()) as ErrorResponse;
+
+      expect(response.status).toBe(502);
+      expect((data.error as { type: string; message: string }).type).toBe('fallback_exhausted');
+    });
+  });
 });

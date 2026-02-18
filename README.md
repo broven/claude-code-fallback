@@ -17,6 +17,7 @@ A fallback proxy for Claude Code (or any Anthropic API client). When you hit rat
 - **Provider Retry with Exponential Backoff** — Configurable per-provider retry count with exponential delay
 - **Prompt Cache Optimization** — Strips volatile billing header parameters to improve Anthropic prompt cache hit rates
 
+[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/broven/claude-code-fallback)
 ## Why This Exists
 
 When using Claude Code or other Anthropic API clients, you might encounter:
