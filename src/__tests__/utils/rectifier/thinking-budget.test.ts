@@ -9,18 +9,21 @@ const enabledConfig: RectifierConfig = {
   enabled: true,
   requestThinkingSignature: true,
   requestThinkingBudget: true,
+  requestToolUseConcurrency: true,
 };
 
 const disabledConfig: RectifierConfig = {
   enabled: false,
   requestThinkingSignature: true,
   requestThinkingBudget: true,
+  requestToolUseConcurrency: false,
 };
 
 const budgetDisabledConfig: RectifierConfig = {
   enabled: true,
   requestThinkingSignature: true,
   requestThinkingBudget: false,
+  requestToolUseConcurrency: true,
 };
 
 describe("shouldRectifyThinkingBudget", () => {

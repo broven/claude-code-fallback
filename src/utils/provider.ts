@@ -11,6 +11,8 @@ import {
   rectifyAnthropicRequest,
   shouldRectifyThinkingBudget,
   rectifyThinkingBudget,
+  shouldRectifyToolUseConcurrency,
+  rectifyToolUseConcurrency,
 } from './rectifier';
 
 /**
@@ -25,6 +27,7 @@ export async function tryProvider(
   options?: {
     rectifierRetried?: boolean;
     budgetRectifierRetried?: boolean;
+    toolUseConcurrencyRetried?: boolean;
   },
 ): Promise<Response> {
   const maxRetries = provider.retry || 0;
@@ -80,6 +83,8 @@ export async function tryProvider(
         'x-api-key',
         'authorization',
         'x-ccf-api-key',
+        'x-ccf-debug-skip-anthropic',
+        'x-ccfallback-debug-skip-anthropic',
         'accept-encoding',
       ];
 
@@ -195,6 +200,26 @@ export async function tryProvider(
             return tryProvider(provider, rectifiedBody, originalHeaders, config, {
               ...options,
               budgetRectifierRetried: true,
+            });
+          }
+        }
+
+        // Tool-use Concurrency Rectifier
+        if (
+          !options?.toolUseConcurrencyRetried &&
+          shouldRectifyToolUseConcurrency(errorMessage, rectifierConfig)
+        ) {
+          const rectifiedBody = JSON.parse(JSON.stringify(body));
+          rectifiedBody.model = model;
+          const result = rectifyToolUseConcurrency(rectifiedBody, errorMessage!);
+
+          if (result.applied) {
+            console.log(
+              `[RECT-003] Tool-use concurrency rectification applied for ${name}: inserted tool_result for ${result.insertedToolResultIds.join(', ')}`,
+            );
+            return tryProvider(provider, rectifiedBody, originalHeaders, config, {
+              ...options,
+              toolUseConcurrencyRetried: true,
             });
           }
         }

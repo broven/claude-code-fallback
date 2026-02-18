@@ -381,6 +381,7 @@ export async function postRectifierConfig(c: Context<{ Bindings: Bindings }>) {
       enabled: body.enabled ?? true,
       requestThinkingSignature: body.requestThinkingSignature ?? true,
       requestThinkingBudget: body.requestThinkingBudget ?? true,
+      requestToolUseConcurrency: body.requestToolUseConcurrency ?? true,
     };
 
     await saveRectifierConfig(c.env, config);

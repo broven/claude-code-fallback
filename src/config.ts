@@ -11,6 +11,7 @@ const defaultRectifierConfig: RectifierConfig = {
   enabled: true,
   requestThinkingSignature: true,
   requestThinkingBudget: true,
+  requestToolUseConcurrency: true,
 };
 
 /**
@@ -78,6 +79,9 @@ export async function loadConfig(env: Bindings): Promise<AppConfig> {
           requestThinkingBudget:
             parsed.requestThinkingBudget ??
             defaultRectifierConfig.requestThinkingBudget,
+          requestToolUseConcurrency:
+            parsed.requestToolUseConcurrency ??
+            defaultRectifierConfig.requestToolUseConcurrency,
         };
       } catch (e) {
         console.error('[Config] Failed to parse rectifier config:', e);
@@ -236,6 +240,9 @@ export async function getRawRectifierConfig(
         requestThinkingBudget:
           parsed.requestThinkingBudget ??
           defaultRectifierConfig.requestThinkingBudget,
+        requestToolUseConcurrency:
+          parsed.requestToolUseConcurrency ??
+          defaultRectifierConfig.requestToolUseConcurrency,
       };
     } catch (e) {
       console.error('[Config] Failed to parse rectifier config:', e);

@@ -18,6 +18,7 @@ export function cleanRequestHeaders(
   headers: Record<string, string>,
 ): Record<string, string> {
   return filterHeaders(headers, [
+    "x-ccf-debug-skip-anthropic",
     "x-ccfallback-debug-skip-anthropic",
     "x-ccf-api-key",
     "host",
@@ -40,6 +41,7 @@ export function filterHeadersDebugOption(
   headers: Record<string, string>,
 ): Record<string, string> {
   return filterHeaders(headers, [
+    "x-ccf-debug-skip-anthropic",
     "x-ccfallback-debug-skip-anthropic",
     "x-ccf-api-key",
   ]);

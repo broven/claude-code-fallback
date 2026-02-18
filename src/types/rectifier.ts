@@ -8,6 +8,8 @@ export interface RectifierConfig {
   requestThinkingSignature: boolean;
   /** Enable thinking budget rectification */
   requestThinkingBudget: boolean;
+  /** Enable tool-use concurrency rectification (orphaned tool_use without tool_result) */
+  requestToolUseConcurrency: boolean;
 }
 
 /**

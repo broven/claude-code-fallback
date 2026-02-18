@@ -24,3 +24,11 @@ export {
   MAX_TOKENS_VALUE,
   MIN_MAX_TOKENS_FOR_BUDGET,
 } from "./thinking-budget";
+
+// Tool-use concurrency rectifier
+export {
+  shouldRectifyToolUseConcurrency,
+  rectifyToolUseConcurrency,
+  parseOrphanedToolUseIds,
+} from "./tool-use-concurrency";
+export type { ToolUseConcurrencyResult } from "./tool-use-concurrency";

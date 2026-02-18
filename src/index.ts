@@ -25,6 +25,8 @@ import {
 import {
   shouldRectifyThinkingSignature,
   rectifyAnthropicRequest,
+  shouldRectifyToolUseConcurrency,
+  rectifyToolUseConcurrency,
 } from "./utils/rectifier";
 import {
   isProviderAvailable,
@@ -271,6 +273,75 @@ app.post("/v1/messages", async (c) => {
               }
             }
           }
+
+          // Tool-use concurrency rectifier: inject missing tool_result blocks
+          if (shouldRectifyToolUseConcurrency(errorMessage, config.rectifier)) {
+            logger.info('rectifier.attempt', 'Applying tool-use concurrency rectification for Anthropic primary', {
+              errorMessage: errorMessage?.substring(0, 200),
+            });
+
+            const rectifiedBody = JSON.parse(JSON.stringify(body));
+            const result = rectifyToolUseConcurrency(rectifiedBody, errorMessage!);
+
+            if (result.applied) {
+              logger.info('rectifier.applied', 'Tool-use concurrency rectification applied', {
+                insertedToolResultIds: result.insertedToolResultIds.join(', '),
+              });
+
+              const retryController = new AbortController();
+              const retryTimeoutId = setTimeout(() => retryController.abort(), 120000);
+
+              try {
+                const retryResponse = await fetch("https://api.anthropic.com/v1/messages", {
+                  method: "POST",
+                  headers: filteredHeaders,
+                  body: JSON.stringify(rectifiedBody),
+                  signal: retryController.signal,
+                });
+
+                clearTimeout(retryTimeoutId);
+
+                if (retryResponse.ok) {
+                  logger.info('provider.success', 'Anthropic API request successful after tool-use rectification', {
+                    provider: anthropicName,
+                    model: body.model,
+                    status: retryResponse.status,
+                    latency: Date.now() - attemptStart,
+                  });
+                  await markProviderSuccess(anthropicName, c.env);
+                  const cleanedHeaders = cleanHeaders(retryResponse.headers);
+                  const responseHeaders = new Headers(cleanedHeaders);
+                  responseHeaders.set('ccr-request-id', requestId);
+                  return new Response(retryResponse.body, {
+                    status: retryResponse.status,
+                    headers: responseHeaders,
+                  });
+                }
+
+                status = retryResponse.status;
+                errorBody = await retryResponse.text();
+                logger.warn('provider.failure', 'Anthropic API request failed after tool-use rectification', {
+                  provider: anthropicName,
+                  model: body.model,
+                  status,
+                  latency: Date.now() - attemptStart,
+                });
+              } catch (retryError: any) {
+                status = 504;
+                errorBody = JSON.stringify({
+                  error: {
+                    type: 'proxy_error',
+                    message: `Tool-use rectifier retry failed: ${retryError.message}`,
+                  },
+                });
+                logger.error('provider.timeout', 'Error retrying after tool-use rectification, will try fallback', {
+                  provider: anthropicName,
+                  model: body.model,
+                  error: retryError.message,
+                });
+              }
+            }
+          }
         }
 
         lastErrorResponse = new Response(errorBody, {
@@ -283,6 +354,7 @@ app.post("/v1/messages", async (c) => {
           model: body.model,
           status,
           latency,
+          error: errorBody.substring(0, 500),
         });
 
         // Only fallback on specific error codes: 401, 403, 429, 5xx
@@ -544,6 +616,76 @@ app.post("/v1/messages", async (c) => {
                 }
               }
             }
+
+          // Tool-use concurrency rectifier (Safety Valve)
+          if (shouldRectifyToolUseConcurrency(errorMessage, config.rectifier)) {
+            logger.info('rectifier.attempt', 'Applying tool-use concurrency rectification (Safety Valve)', {
+              errorMessage: errorMessage?.substring(0, 200),
+            });
+
+            const rectifiedBody = JSON.parse(JSON.stringify(body));
+            const result = rectifyToolUseConcurrency(rectifiedBody, errorMessage!);
+
+            if (result.applied) {
+              logger.info('rectifier.applied', 'Tool-use concurrency rectification applied (Safety Valve)', {
+                insertedToolResultIds: result.insertedToolResultIds.join(', '),
+              });
+
+              const retryController = new AbortController();
+              const retryTimeoutId = setTimeout(() => retryController.abort(), 120000);
+
+              try {
+                const retryResponse = await fetch("https://api.anthropic.com/v1/messages", {
+                  method: "POST",
+                  headers: filteredHeaders,
+                  body: JSON.stringify(rectifiedBody),
+                  signal: retryController.signal,
+                });
+
+                clearTimeout(retryTimeoutId);
+
+                if (retryResponse.ok) {
+                  logger.info('provider.success', 'Safety valve successful after tool-use rectification', {
+                    provider: anthropicName,
+                    model: body.model,
+                    status: retryResponse.status,
+                    latency: Date.now() - attemptStart,
+                  });
+                  await markProviderSuccess(anthropicName, c.env);
+                  const cleanedHeaders = cleanHeaders(retryResponse.headers);
+                  const responseHeaders = new Headers(cleanedHeaders);
+                  responseHeaders.set('ccr-request-id', requestId);
+                  return new Response(retryResponse.body, {
+                    status: retryResponse.status,
+                    headers: responseHeaders,
+                  });
+                }
+
+                errorBody = await retryResponse.text();
+                finalStatus = retryResponse.status;
+                finalHeaders = retryResponse.headers;
+                logger.warn('provider.failure', 'Safety valve failed after tool-use rectification', {
+                  provider: anthropicName,
+                  model: body.model,
+                  status: finalStatus,
+                  latency: Date.now() - attemptStart,
+                });
+              } catch (retryError: any) {
+                finalStatus = 504;
+                errorBody = JSON.stringify({
+                  error: {
+                    type: 'proxy_error',
+                    message: `Tool-use rectifier retry failed: ${retryError.message}`,
+                  },
+                });
+                logger.error('provider.timeout', 'Error retrying after tool-use rectification (Safety Valve)', {
+                  provider: anthropicName,
+                  model: body.model,
+                  error: retryError.message,
+                });
+              }
+            }
+          }
           }
 
           logger.warn('provider.failure', 'Safety valve request failed', {
@@ -551,6 +693,7 @@ app.post("/v1/messages", async (c) => {
             model: body.model,
             status: finalStatus,
             latency,
+            error: errorBody.substring(0, 500),
           });
           await markProviderFailed(anthropicName, cooldownDuration, c.env);
           lastErrorResponse = new Response(errorBody, {

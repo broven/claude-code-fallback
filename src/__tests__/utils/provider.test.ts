@@ -32,6 +32,7 @@ const defaultConfig: AppConfig = {
     enabled: true,
     requestThinkingSignature: true,
     requestThinkingBudget: true,
+    requestToolUseConcurrency: true,
   },
 };
 
@@ -253,6 +254,23 @@ describe("tryProvider", () => {
       >;
       // Should have the provider's auth, not the original
       expect(headers["Authorization"]).toBe(`Bearer ${validProvider.apiKey}`);
+    });
+
+    it("excludes debug skip headers from forwarded request", async () => {
+      const mockFetch = vi.fn().mockResolvedValue(createSuccessResponse());
+      globalThis.fetch = mockFetch;
+
+      const headersWithDebug = {
+        ...validHeaders,
+        "x-ccf-debug-skip-anthropic": "1",
+        "x-ccfallback-debug-skip-anthropic": "1",
+      };
+
+      await tryProvider(validProvider, validMessageRequest, headersWithDebug, defaultConfig);
+
+      const headers = mockFetch.mock.calls[0][1].headers as Record<string, string>;
+      expect(headers["x-ccf-debug-skip-anthropic"]).toBeUndefined();
+      expect(headers["x-ccfallback-debug-skip-anthropic"]).toBeUndefined();
     });
 
     it("applies custom headers from provider config", async () => {
