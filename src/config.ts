@@ -1,9 +1,18 @@
 import { Bindings, AppConfig, ProviderConfig, TokenConfig } from './types';
+import type { RectifierConfig } from './types/rectifier';
 
 const KV_KEY = 'providers';
 const TOKENS_KV_KEY = 'allowed_tokens';
 const COOLDOWN_KV_KEY = 'cooldown_duration';
 const ANTHROPIC_DISABLED_KV_KEY = 'anthropic_primary_disabled';
+const RECTIFIER_KV_KEY = 'rectifier_config';
+
+const defaultRectifierConfig: RectifierConfig = {
+  enabled: true,
+  requestThinkingSignature: true,
+  requestThinkingBudget: true,
+  requestToolUseConcurrency: true,
+};
 
 /**
  * Load configuration from KV storage.
@@ -14,13 +23,15 @@ export async function loadConfig(env: Bindings): Promise<AppConfig> {
   let tokenConfigs: TokenConfig[] = [];
   let cooldownDuration = parseInt(env.COOLDOWN_DURATION || '300', 10);
   let anthropicDisabledJson: string | null = null;
+  let rectifierConfig: RectifierConfig = { ...defaultRectifierConfig };
 
   try {
-    const [configJson, tokensJson, cooldownJson, adJson] = await Promise.all([
+    const [configJson, tokensJson, cooldownJson, adJson, rectifierJson] = await Promise.all([
       env.CONFIG_KV.get(KV_KEY),
       env.CONFIG_KV.get(TOKENS_KV_KEY),
       env.CONFIG_KV.get(COOLDOWN_KV_KEY),
       env.CONFIG_KV.get(ANTHROPIC_DISABLED_KV_KEY),
+      env.CONFIG_KV.get(RECTIFIER_KV_KEY),
     ]);
 
     if (configJson) {
@@ -56,6 +67,26 @@ export async function loadConfig(env: Bindings): Promise<AppConfig> {
     }
 
     anthropicDisabledJson = adJson;
+
+    if (rectifierJson) {
+      try {
+        const parsed = JSON.parse(rectifierJson);
+        rectifierConfig = {
+          enabled: parsed.enabled ?? defaultRectifierConfig.enabled,
+          requestThinkingSignature:
+            parsed.requestThinkingSignature ??
+            defaultRectifierConfig.requestThinkingSignature,
+          requestThinkingBudget:
+            parsed.requestThinkingBudget ??
+            defaultRectifierConfig.requestThinkingBudget,
+          requestToolUseConcurrency:
+            parsed.requestToolUseConcurrency ??
+            defaultRectifierConfig.requestToolUseConcurrency,
+        };
+      } catch (e) {
+        console.error('[Config] Failed to parse rectifier config:', e);
+      }
+    }
   } catch (e) {
     console.error('[Config] Failed to load config from KV:', e);
   }
@@ -76,6 +107,7 @@ export async function loadConfig(env: Bindings): Promise<AppConfig> {
     tokenConfigs,
     cooldownDuration,
     anthropicPrimaryDisabled,
+    rectifier: rectifierConfig,
   };
 }
 
@@ -178,4 +210,43 @@ export async function saveAnthropicDisabled(
   disabled: boolean,
 ): Promise<void> {
   await env.CONFIG_KV.put(ANTHROPIC_DISABLED_KV_KEY, disabled.toString());
+}
+
+/**
+ * Save rectifier configuration to KV storage.
+ */
+export async function saveRectifierConfig(
+  env: Bindings,
+  config: RectifierConfig,
+): Promise<void> {
+  await env.CONFIG_KV.put(RECTIFIER_KV_KEY, JSON.stringify(config));
+}
+
+/**
+ * Get rectifier configuration from KV storage.
+ */
+export async function getRawRectifierConfig(
+  env: Bindings,
+): Promise<RectifierConfig> {
+  const val = await env.CONFIG_KV.get(RECTIFIER_KV_KEY);
+  if (val) {
+    try {
+      const parsed = JSON.parse(val);
+      return {
+        enabled: parsed.enabled ?? defaultRectifierConfig.enabled,
+        requestThinkingSignature:
+          parsed.requestThinkingSignature ??
+          defaultRectifierConfig.requestThinkingSignature,
+        requestThinkingBudget:
+          parsed.requestThinkingBudget ??
+          defaultRectifierConfig.requestThinkingBudget,
+        requestToolUseConcurrency:
+          parsed.requestToolUseConcurrency ??
+          defaultRectifierConfig.requestToolUseConcurrency,
+      };
+    } catch (e) {
+      console.error('[Config] Failed to parse rectifier config:', e);
+    }
+  }
+  return { ...defaultRectifierConfig };
 }

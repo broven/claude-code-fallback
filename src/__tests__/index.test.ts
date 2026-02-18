@@ -40,56 +40,15 @@ describe('Main Application', () => {
     vi.restoreAllMocks();
   });
 
-  describe('GET / (health check)', () => {
-    it('returns 200 status', async () => {
+  describe('GET / (redirect to admin)', () => {
+    it('returns 302 redirect to /admin', async () => {
       const env = createMockBindings();
       const request = new Request('http://localhost/');
 
       const response = await app.fetch(request, env);
 
-      expect(response.status).toBe(200);
-    });
-
-    it('returns text content type', async () => {
-      const env = createMockBindings();
-      const request = new Request('http://localhost/');
-
-      const response = await app.fetch(request, env);
-
-      expect(response.headers.get('content-type')).toContain('text/plain');
-    });
-
-    it('includes proxy running message', async () => {
-      const env = createMockBindings();
-      const request = new Request('http://localhost/');
-
-      const response = await app.fetch(request, env);
-      const text = await response.text();
-
-      expect(text).toContain('Claude Code Fallback Proxy');
-      expect(text).toContain('is running');
-    });
-
-    it('includes provider count', async () => {
-      const env = createMockBindings({
-        kvData: { providers: JSON.stringify(multipleProviders) },
-      });
-      const request = new Request('http://localhost/');
-
-      const response = await app.fetch(request, env);
-      const text = await response.text();
-
-      expect(text).toContain('3 fallback provider(s)');
-    });
-
-    it('shows 0 providers when none configured', async () => {
-      const env = createMockBindings();
-      const request = new Request('http://localhost/');
-
-      const response = await app.fetch(request, env);
-      const text = await response.text();
-
-      expect(text).toContain('0 fallback provider(s)');
+      expect(response.status).toBe(302);
+      expect(response.headers.get('location')).toBe('/admin');
     });
   });
 
@@ -158,7 +117,7 @@ describe('Main Application', () => {
             'content-type': 'application/json',
             'transfer-encoding': 'chunked',
             connection: 'keep-alive',
-            'x-request-id': '12345',
+            'ccr-request-id': '12345',
           },
         });
         globalThis.fetch = vi.fn().mockResolvedValue(responseWithBadHeaders);
@@ -169,7 +128,7 @@ describe('Main Application', () => {
 
         expect(response.headers.get('transfer-encoding')).toBeNull();
         expect(response.headers.get('connection')).toBeNull();
-        expect(response.headers.get('x-request-id')).toBe('12345');
+        expect(response.headers.get('ccr-request-id')).toBeTruthy();
       });
     });
 
@@ -270,6 +229,8 @@ describe('Main Application', () => {
 
         expect(response.status).toBe(400);
         expect(data).toEqual(errorResponses.badRequest);
+        // Verify ccr-request-id header is present on error responses
+        expect(response.headers.get('ccr-request-id')).toBeTruthy();
       });
 
       it('does NOT trigger fallback on 404', async () => {
@@ -483,13 +444,16 @@ describe('Main Application', () => {
 
         await app.fetch(request, env);
 
-        expect(consoleSpy).toHaveBeenCalledWith(
-          '[Proxy] Incoming Request',
-          expect.objectContaining({
-            method: 'POST',
-            model: validMessageRequest.model,
-          })
+        // Structured logger outputs JSON strings via console.log
+        const logCalls = consoleSpy.mock.calls.map(call => call[0]);
+        const startLog = logCalls.find(msg =>
+          typeof msg === 'string' && msg.includes('"event":"request.start"')
         );
+        expect(startLog).toBeDefined();
+        const parsed = JSON.parse(startLog as string);
+        expect(parsed.event).toBe('request.start');
+        expect(parsed.data.model).toBe(validMessageRequest.model);
+        expect(parsed.requestId).toMatch(/^ccr-/);
       });
     });
   });
@@ -550,10 +514,25 @@ describe('Main Application', () => {
       });
     }
 
+    function makeProviderState(overrides: Partial<{
+      consecutiveFailures: number;
+      lastFailure: number | null;
+      lastSuccess: number | null;
+      cooldownUntil: number | null;
+    }> = {}) {
+      return JSON.stringify({
+        consecutiveFailures: 5,
+        lastFailure: Date.now(),
+        lastSuccess: null,
+        cooldownUntil: Date.now() + 60000,
+        ...overrides,
+      });
+    }
+
     it('skips Anthropic primary if in cooldown', async () => {
       const env = createMockBindings({
         kvData: {
-          'circuit:anthropic-primary': 'failed',
+          'provider-state:anthropic-primary': makeProviderState(),
           providers: JSON.stringify([validProvider])
         },
       });
@@ -586,7 +565,7 @@ describe('Main Application', () => {
 
       const env = createMockBindings({
         kvData: {
-          'circuit:provider1': 'failed',
+          'provider-state:provider1': makeProviderState(),
           providers: JSON.stringify(providers)
         },
       });
@@ -615,7 +594,7 @@ describe('Main Application', () => {
       expect(callOrder).toEqual(['provider2']);
     });
 
-    it('marks Anthropic as failed in KV after 5xx error', async () => {
+    it('records failure state in KV after 5xx error (no cooldown for first failure)', async () => {
        const env = createMockBindings({
         kvData: { providers: JSON.stringify([validProvider]) },
       });
@@ -631,11 +610,15 @@ describe('Main Application', () => {
       const request = createProxyRequest();
       await app.fetch(request, env);
 
-      const val = await env.CONFIG_KV.get('circuit:anthropic-primary');
-      expect(val).toBe('failed');
+      const raw = await env.CONFIG_KV.get('provider-state:anthropic-primary');
+      expect(raw).not.toBeNull();
+      const state = JSON.parse(raw!);
+      expect(state.consecutiveFailures).toBe(1);
+      // First failure should NOT trigger cooldown
+      expect(state.cooldownUntil).toBeNull();
     });
 
-    it('respects cooldown configuration from KV', async () => {
+    it('stores provider state as JSON with correct maxCooldown from config', async () => {
       const env = createMockBindings({
         kvData: {
           providers: JSON.stringify([validProvider]),
@@ -655,12 +638,378 @@ describe('Main Application', () => {
       const request = createProxyRequest();
       await app.fetch(request, env);
 
-      // Verify markProviderFailed called with 600
+      // Verify state is stored as JSON under new key format
       expect(putSpy).toHaveBeenCalledWith(
-        'circuit:anthropic-primary',
-        'failed',
-        expect.objectContaining({ expirationTtl: 600 })
+        'provider-state:anthropic-primary',
+        expect.any(String),
       );
+
+      const raw = await env.CONFIG_KV.get('provider-state:anthropic-primary');
+      const state = JSON.parse(raw!);
+      expect(state.consecutiveFailures).toBe(1);
+    });
+
+    it('safety valve tries least-recently-failed when all providers are in cooldown', async () => {
+      const now = Date.now();
+      const env = createMockBindings({
+        kvData: {
+          // Anthropic in cooldown (long)
+          'provider-state:anthropic-primary': JSON.stringify({
+            consecutiveFailures: 10,
+            lastFailure: now,
+            lastSuccess: null,
+            cooldownUntil: now + 300000,
+          }),
+          // Fallback also in cooldown (short - should be chosen by safety valve)
+          'provider-state:openrouter': JSON.stringify({
+            consecutiveFailures: 3,
+            lastFailure: now,
+            lastSuccess: null,
+            cooldownUntil: now + 30000,
+          }),
+          providers: JSON.stringify([validProvider]),
+        },
+      });
+
+      let fallbackCalled = false;
+      globalThis.fetch = vi.fn((url: RequestInfo | URL) => {
+        const urlStr = url.toString();
+        if (urlStr.includes('openrouter')) {
+          fallbackCalled = true;
+          return Promise.resolve(createSuccessResponse(successResponse));
+        }
+        return Promise.resolve(createErrorResponse(500, errorResponses.serverError));
+      }) as typeof fetch;
+
+      const request = createProxyRequest();
+      const response = await app.fetch(request, env);
+
+      expect(fallbackCalled).toBe(true);
+      expect(response.status).toBe(200);
+    });
+
+    it('safety valve tries Anthropic primary when it has earliest cooldown', async () => {
+      const now = Date.now();
+      const env = createMockBindings({
+        kvData: {
+          // Anthropic in cooldown (short - should be chosen)
+          'provider-state:anthropic-primary': JSON.stringify({
+            consecutiveFailures: 3,
+            lastFailure: now,
+            lastSuccess: null,
+            cooldownUntil: now + 30000,
+          }),
+          // Fallback also in cooldown (long)
+          'provider-state:openrouter': JSON.stringify({
+            consecutiveFailures: 10,
+            lastFailure: now,
+            lastSuccess: null,
+            cooldownUntil: now + 300000,
+          }),
+          providers: JSON.stringify([validProvider]),
+        },
+      });
+
+      let anthropicCalled = false;
+      globalThis.fetch = vi.fn((url: RequestInfo | URL) => {
+        const urlStr = url.toString();
+        if (urlStr.includes('api.anthropic.com')) {
+          anthropicCalled = true;
+          return Promise.resolve(createSuccessResponse(successResponse));
+        }
+        return Promise.resolve(createErrorResponse(500, errorResponses.serverError));
+      }) as typeof fetch;
+
+      const request = createProxyRequest();
+      const response = await app.fetch(request, env);
+
+      expect(anthropicCalled).toBe(true);
+      expect(response.status).toBe(200);
+    });
+
+    it('safety valve returns error response when chosen provider also fails', async () => {
+      const now = Date.now();
+      const env = createMockBindings({
+        kvData: {
+          'provider-state:anthropic-primary': JSON.stringify({
+            consecutiveFailures: 10,
+            lastFailure: now,
+            lastSuccess: null,
+            cooldownUntil: now + 300000,
+          }),
+          'provider-state:openrouter': JSON.stringify({
+            consecutiveFailures: 3,
+            lastFailure: now,
+            lastSuccess: null,
+            cooldownUntil: now + 30000,
+          }),
+          providers: JSON.stringify([validProvider]),
+        },
+      });
+
+      globalThis.fetch = vi.fn(() => {
+        return Promise.resolve(createErrorResponse(500, { error: 'still failing' }));
+      }) as typeof fetch;
+
+      const request = createProxyRequest();
+      const response = await app.fetch(request, env);
+
+      expect(response.status).toBe(500);
+    });
+
+    it('safety valve handles network error gracefully', async () => {
+      const now = Date.now();
+      const env = createMockBindings({
+        kvData: {
+          'provider-state:anthropic-primary': JSON.stringify({
+            consecutiveFailures: 3,
+            lastFailure: now,
+            lastSuccess: null,
+            cooldownUntil: now + 30000,
+          }),
+          providers: JSON.stringify([]),
+        },
+      });
+
+      globalThis.fetch = vi.fn(() => {
+        return Promise.reject(new Error('Network error'));
+      }) as typeof fetch;
+
+      const request = createProxyRequest();
+      const response = await app.fetch(request, env);
+
+      // Should return 502 fallback_exhausted since no other response available
+      expect(response.status).toBe(502);
+    });
+
+    it('safety valve Anthropic failure records state and returns error', async () => {
+      const now = Date.now();
+      const env = createMockBindings({
+        kvData: {
+          // Anthropic in cooldown (short - chosen by safety valve)
+          'provider-state:anthropic-primary': JSON.stringify({
+            consecutiveFailures: 3,
+            lastFailure: now,
+            lastSuccess: null,
+            cooldownUntil: now + 30000,
+          }),
+          // Fallback also in cooldown (long)
+          'provider-state:openrouter': JSON.stringify({
+            consecutiveFailures: 10,
+            lastFailure: now,
+            lastSuccess: null,
+            cooldownUntil: now + 300000,
+          }),
+          providers: JSON.stringify([validProvider]),
+        },
+      });
+
+      globalThis.fetch = vi.fn(() => {
+        return Promise.resolve(createErrorResponse(503, { error: 'service unavailable' }));
+      }) as typeof fetch;
+
+      const request = createProxyRequest();
+      const response = await app.fetch(request, env);
+
+      expect(response.status).toBe(503);
+
+      // Verify failure was recorded
+      const raw = await env.CONFIG_KV.get('provider-state:anthropic-primary');
+      const state = JSON.parse(raw!);
+      expect(state.consecutiveFailures).toBe(4);
+    });
+
+    it('safety valve applies signature rectification on 400 invalid signature error', async () => {
+      const now = Date.now();
+      const env = createMockBindings({
+        kvData: {
+          'provider-state:anthropic-primary': JSON.stringify({
+            consecutiveFailures: 3,
+            lastFailure: now,
+            lastSuccess: null,
+            cooldownUntil: now + 30000,
+          }),
+          'provider-state:openrouter': JSON.stringify({
+            consecutiveFailures: 10,
+            lastFailure: now,
+            lastSuccess: null,
+            cooldownUntil: now + 300000,
+          }),
+          providers: JSON.stringify([validProvider]),
+        },
+      });
+
+      let attemptCount = 0;
+      globalThis.fetch = vi.fn((url, options: any) => {
+        attemptCount++;
+        if (attemptCount === 1) {
+          // First attempt: return 400 with invalid signature
+          return Promise.resolve(createErrorResponse(400, {
+            type: 'error',
+            error: {
+              type: 'invalid_request_error',
+              message: 'messages.1.content.0: invalid signature in thinking block'
+            }
+          }));
+        } else {
+          // Second attempt (retry): should be successful
+          return Promise.resolve(createSuccessResponse(successResponse));
+        }
+      }) as typeof fetch;
+
+      // Request MUST have thinking block for rectification to apply
+      const requestWithThinking = {
+        model: 'claude-3-7-sonnet-20250219',
+        messages: [
+          { role: 'user', content: 'hello' },
+          {
+            role: 'assistant',
+            content: [
+              { type: 'thinking', signature: 'invalid', thinking: 'hmm' }
+            ]
+          },
+          { role: 'user', content: 'follow up' }
+        ]
+      };
+
+      const request = createProxyRequest(requestWithThinking);
+      const response = await app.fetch(request, env);
+
+      expect(response.status).toBe(200);
+      expect(attemptCount).toBe(2);
+    });
+
+    it('first failure does not cause cooldown (provider still available next request)', async () => {
+      const env = createMockBindings({
+        kvData: { providers: JSON.stringify([validProvider]) },
+      });
+
+      // First request - Anthropic fails
+      globalThis.fetch = vi.fn((url: RequestInfo | URL) => {
+        const urlStr = url.toString();
+        if (urlStr.includes('api.anthropic.com')) {
+          return Promise.resolve(createErrorResponse(500, errorResponses.serverError));
+        }
+        return Promise.resolve(createSuccessResponse(successResponse));
+      }) as typeof fetch;
+
+      const request1 = createProxyRequest();
+      await app.fetch(request1, env);
+
+      // Verify provider state has 1 failure but no cooldown
+      const raw = await env.CONFIG_KV.get('provider-state:anthropic-primary');
+      const state = JSON.parse(raw!);
+      expect(state.consecutiveFailures).toBe(1);
+      expect(state.cooldownUntil).toBeNull();
+    });
+  });
+
+  describe('Provider disable/enable', () => {
+    function createProxyRequest(body: unknown = validMessageRequest, headers: Record<string, string> = {}) {
+      return new Request('http://localhost/v1/messages', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': 'test-anthropic-key',
+          'anthropic-version': '2023-06-01',
+          ...headers,
+        },
+        body: JSON.stringify(body),
+      });
+    }
+
+    it('skips Anthropic primary when disabled in KV', async () => {
+      let anthropicCalled = false;
+      globalThis.fetch = vi.fn((url: RequestInfo | URL) => {
+        const urlStr = url.toString();
+        if (urlStr.includes('api.anthropic.com')) {
+          anthropicCalled = true;
+        }
+        return Promise.resolve(createSuccessResponse(successResponse));
+      }) as typeof fetch;
+      const env = createMockBindings({
+        kvData: {
+          providers: JSON.stringify([validProvider]),
+          anthropic_primary_disabled: 'true',
+        },
+      });
+      const request = createProxyRequest();
+
+      await app.fetch(request, env);
+
+      expect(anthropicCalled).toBe(false);
+    });
+
+    it('uses fallback providers when Anthropic primary is disabled', async () => {
+      let fallbackCalled = false;
+      globalThis.fetch = vi.fn((url: RequestInfo | URL) => {
+        const urlStr = url.toString();
+        if (!urlStr.includes('api.anthropic.com')) {
+          fallbackCalled = true;
+        }
+        return Promise.resolve(createSuccessResponse(successResponse));
+      }) as typeof fetch;
+      const env = createMockBindings({
+        kvData: {
+          providers: JSON.stringify([validProvider]),
+          anthropic_primary_disabled: 'true',
+        },
+      });
+      const request = createProxyRequest();
+
+      const response = await app.fetch(request, env);
+
+      expect(response.status).toBe(200);
+      expect(fallbackCalled).toBe(true);
+    });
+
+    it('skips disabled fallback provider', async () => {
+      const disabledProvider = { ...validProvider, name: 'disabled-one', disabled: true };
+      const enabledProvider = { ...minimalProvider, name: 'enabled-one' };
+
+      const callOrder: string[] = [];
+      globalThis.fetch = vi.fn((url: RequestInfo | URL) => {
+        const urlStr = url.toString();
+        if (urlStr.includes('api.anthropic.com')) {
+          callOrder.push('anthropic');
+          return Promise.resolve(createErrorResponse(429, errorResponses.rateLimited));
+        }
+        if (urlStr.includes(disabledProvider.baseUrl)) {
+          callOrder.push('disabled-one');
+          return Promise.resolve(createSuccessResponse(successResponse));
+        }
+        if (urlStr.includes(enabledProvider.baseUrl)) {
+          callOrder.push('enabled-one');
+          return Promise.resolve(createSuccessResponse(successResponse));
+        }
+        return Promise.resolve(createSuccessResponse(successResponse));
+      }) as typeof fetch;
+      const env = createMockBindings({
+        kvData: { providers: JSON.stringify([disabledProvider, enabledProvider]) },
+      });
+      const request = createProxyRequest();
+
+      await app.fetch(request, env);
+
+      expect(callOrder).toEqual(['anthropic', 'enabled-one']);
+    });
+
+    it('returns 502 when Anthropic disabled and all fallback providers disabled', async () => {
+      const disabledProvider = { ...validProvider, disabled: true };
+      globalThis.fetch = vi.fn().mockResolvedValue(createSuccessResponse(successResponse));
+      const env = createMockBindings({
+        kvData: {
+          providers: JSON.stringify([disabledProvider]),
+          anthropic_primary_disabled: 'true',
+        },
+      });
+      const request = createProxyRequest();
+
+      const response = await app.fetch(request, env);
+      const data = (await response.json()) as ErrorResponse;
+
+      expect(response.status).toBe(502);
+      expect((data.error as { type: string; message: string }).type).toBe('fallback_exhausted');
     });
   });
 

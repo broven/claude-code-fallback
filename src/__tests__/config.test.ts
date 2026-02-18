@@ -1,5 +1,18 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { loadConfig, saveConfig, getRawConfig, saveCooldown, getRawCooldown, parseTokenConfigs } from '../config';
+import {
+  loadConfig,
+  saveConfig,
+  getRawConfig,
+  saveCooldown,
+  getRawCooldown,
+  parseTokenConfigs,
+  saveTokens,
+  getRawTokens,
+  getRawAnthropicDisabled,
+  saveAnthropicDisabled,
+  saveRectifierConfig,
+  getRawRectifierConfig,
+} from '../config';
 import { createMockBindings } from './mocks/kv';
 import {
   validProvider,
@@ -371,6 +384,17 @@ describe('cooldown persistence', () => {
 
     expect(val).toBe(120);
   });
+
+  it('getRawCooldown falls back to env when KV value is invalid', async () => {
+    const env = createMockBindings({
+      kvData: { cooldown_duration: 'not-a-number' }
+    });
+    env.COOLDOWN_DURATION = '180';
+
+    const val = await getRawCooldown(env);
+
+    expect(val).toBe(180);
+  });
 });
 
 describe('getRawConfig', () => {
@@ -526,5 +550,177 @@ describe('loadConfig token handling', () => {
 
     expect(config.allowedTokens).toEqual([]);
     expect(config.tokenConfigs).toEqual([]);
+  });
+});
+
+describe('token persistence helpers', () => {
+  it('saveTokens saves token configs to KV', async () => {
+    const env = createMockBindings();
+    const putSpy = vi.spyOn(env.CONFIG_KV, 'put');
+    const tokens = [
+      { token: 'sk-1', note: 'dev' },
+      { token: 'sk-2' },
+    ];
+
+    await saveTokens(env, tokens);
+
+    expect(putSpy).toHaveBeenCalledWith('allowed_tokens', JSON.stringify(tokens));
+  });
+
+  it('getRawTokens returns raw JSON from KV', async () => {
+    const env = createMockBindings({
+      kvData: { allowed_tokens: '[{"token":"sk-1"}]' },
+    });
+
+    const raw = await getRawTokens(env);
+
+    expect(raw).toBe('[{"token":"sk-1"}]');
+  });
+
+  it('getRawTokens returns empty array string when KV is empty', async () => {
+    const env = createMockBindings();
+
+    const raw = await getRawTokens(env);
+
+    expect(raw).toBe('[]');
+  });
+});
+
+describe('anthropic primary disabled config', () => {
+  it('getRawAnthropicDisabled returns true when KV is "true"', async () => {
+    const env = createMockBindings({
+      kvData: { anthropic_primary_disabled: 'true' },
+    });
+
+    const disabled = await getRawAnthropicDisabled(env);
+
+    expect(disabled).toBe(true);
+  });
+
+  it('getRawAnthropicDisabled returns false when KV is missing', async () => {
+    const env = createMockBindings();
+
+    const disabled = await getRawAnthropicDisabled(env);
+
+    expect(disabled).toBe(false);
+  });
+
+  it('saveAnthropicDisabled persists boolean as string', async () => {
+    const env = createMockBindings();
+    const putSpy = vi.spyOn(env.CONFIG_KV, 'put');
+
+    await saveAnthropicDisabled(env, true);
+    await saveAnthropicDisabled(env, false);
+
+    expect(putSpy).toHaveBeenNthCalledWith(1, 'anthropic_primary_disabled', 'true');
+    expect(putSpy).toHaveBeenNthCalledWith(2, 'anthropic_primary_disabled', 'false');
+  });
+
+  it('loadConfig reads anthropicPrimaryDisabled from KV', async () => {
+    const env = createMockBindings({
+      kvData: { anthropic_primary_disabled: 'true' },
+    });
+
+    const config = await loadConfig(env);
+
+    expect(config.anthropicPrimaryDisabled).toBe(true);
+  });
+});
+
+describe('rectifier config persistence', () => {
+  beforeEach(() => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('saveRectifierConfig saves full config JSON', async () => {
+    const env = createMockBindings();
+    const putSpy = vi.spyOn(env.CONFIG_KV, 'put');
+    const rectifierConfig = {
+      enabled: false,
+      requestThinkingSignature: false,
+      requestThinkingBudget: true,
+      requestToolUseConcurrency: false,
+    };
+
+    await saveRectifierConfig(env, rectifierConfig);
+
+    expect(putSpy).toHaveBeenCalledWith('rectifier_config', JSON.stringify(rectifierConfig));
+  });
+
+  it('getRawRectifierConfig returns defaults when KV is missing', async () => {
+    const env = createMockBindings();
+
+    const config = await getRawRectifierConfig(env);
+
+    expect(config).toEqual({
+      enabled: true,
+      requestThinkingSignature: true,
+      requestThinkingBudget: true,
+      requestToolUseConcurrency: true,
+    });
+  });
+
+  it('getRawRectifierConfig merges partial KV config with defaults', async () => {
+    const env = createMockBindings({
+      kvData: {
+        rectifier_config: JSON.stringify({
+          enabled: false,
+          requestThinkingBudget: false,
+        }),
+      },
+    });
+
+    const config = await getRawRectifierConfig(env);
+
+    expect(config).toEqual({
+      enabled: false,
+      requestThinkingSignature: true,
+      requestThinkingBudget: false,
+      requestToolUseConcurrency: true,
+    });
+  });
+
+  it('getRawRectifierConfig returns defaults on invalid JSON', async () => {
+    const consoleSpy = vi.spyOn(console, 'error');
+    const env = createMockBindings({
+      kvData: { rectifier_config: '{not-json' },
+    });
+
+    const config = await getRawRectifierConfig(env);
+
+    expect(config).toEqual({
+      enabled: true,
+      requestThinkingSignature: true,
+      requestThinkingBudget: true,
+      requestToolUseConcurrency: true,
+    });
+    expect(consoleSpy).toHaveBeenCalledWith(
+      expect.stringContaining('Failed to parse rectifier config:'),
+      expect.any(Error),
+    );
+  });
+
+  it('loadConfig reads and merges rectifier config from KV', async () => {
+    const env = createMockBindings({
+      kvData: {
+        rectifier_config: JSON.stringify({
+          requestThinkingSignature: false,
+          requestToolUseConcurrency: false,
+        }),
+      },
+    });
+
+    const config = await loadConfig(env);
+
+    expect(config.rectifier).toEqual({
+      enabled: true,
+      requestThinkingSignature: false,
+      requestThinkingBudget: true,
+      requestToolUseConcurrency: false,
+    });
   });
 });

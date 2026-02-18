@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { Hono } from "hono";
 import {
   authMiddleware,
+  loginPage,
   adminPage,
   getConfig,
   postConfig,
@@ -10,6 +11,8 @@ import {
   getSettings,
   postSettings,
   testProvider,
+  getProviderStates,
+  resetProviderState,
 } from "../admin";
 import { Bindings } from "../types";
 import { createMockBindings } from "./mocks/kv";
@@ -24,6 +27,7 @@ import {
 // Helper to create a Hono app with routes for testing
 function createTestApp() {
   const app = new Hono<{ Bindings: Bindings }>();
+  app.get("/admin/login", loginPage);
   app.get("/admin", authMiddleware, adminPage);
   app.get("/admin/config", authMiddleware, getConfig);
   app.post("/admin/config", authMiddleware, postConfig);
@@ -32,6 +36,8 @@ function createTestApp() {
   app.get("/admin/settings", authMiddleware, getSettings);
   app.post("/admin/settings", authMiddleware, postSettings);
   app.post("/admin/test-provider", authMiddleware, testProvider);
+  app.get("/admin/provider-states", authMiddleware, getProviderStates);
+  app.post("/admin/provider-states/:name/reset", authMiddleware, resetProviderState);
   return app;
 }
 
@@ -146,6 +152,41 @@ describe("authMiddleware", () => {
 
       expect(response.status).toBe(200);
     });
+
+    it("redirects to /admin/login when token is missing on GET /admin", async () => {
+      const env = createMockBindings({ adminToken: "valid-token" });
+      // Browser navigation includes Accept: text/html
+      const request = new Request("http://localhost/admin", {
+        headers: { "Accept": "text/html,application/xhtml+xml" },
+      });
+
+      const response = await app.fetch(request, env);
+
+      expect(response.status).toBe(302);
+      expect(response.headers.get("location")).toBe("/admin/login");
+    });
+  });
+});
+
+describe("loginPage", () => {
+  let app: Hono<{ Bindings: Bindings }>;
+
+  beforeEach(() => {
+    app = createTestApp();
+  });
+
+  it("returns HTML login page", async () => {
+    const env = createMockBindings({ adminToken: "valid-token" });
+    const request = createRequest("/admin/login");
+
+    const response = await app.fetch(request, env);
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-type")).toContain("text/html");
+    const html = await response.text();
+    // The new React app is served as a static HTML shell
+    expect(html).toContain('<div id="root">');
+    expect(html).toContain("<!doctype html>");
   });
 });
 
@@ -165,57 +206,15 @@ describe("adminPage", () => {
     expect(response.headers.get("content-type")).toContain("text/html");
   });
 
-  it("includes admin page title", async () => {
+  it("returns the React app shell", async () => {
     const env = createMockBindings({ adminToken: "test-token" });
     const request = createRequest("/admin", { token: "test-token" });
 
     const response = await app.fetch(request, env);
     const html = await response.text();
 
-    expect(html).toContain("Claude Code Fallback");
-    expect(html).toContain("Admin");
-  });
-
-  it("includes token in rendered page for client-side use", async () => {
-    const env = createMockBindings({ adminToken: "test-token" });
-    const request = createRequest("/admin", { token: "test-token" });
-
-    const response = await app.fetch(request, env);
-    const html = await response.text();
-
-    expect(html).toContain("test-token");
-  });
-
-  it("includes current config in rendered page", async () => {
-    const env = createMockBindings({
-      adminToken: "test-token",
-      kvData: { providers: JSON.stringify([validProvider]) },
-    });
-    const request = createRequest("/admin", { token: "test-token" });
-
-    const response = await app.fetch(request, env);
-    const html = await response.text();
-
-    expect(html).toContain("openrouter");
-  });
-
-  it("escapes HTML in config data", async () => {
-    const providerWithXss = {
-      name: '<script>alert("xss")</script>',
-      baseUrl: "https://api.example.com",
-      apiKey: "test-key",
-    };
-    const env = createMockBindings({
-      adminToken: "test-token",
-      kvData: { providers: JSON.stringify([providerWithXss]) },
-    });
-    const request = createRequest("/admin", { token: "test-token" });
-
-    const response = await app.fetch(request, env);
-    const html = await response.text();
-
-    expect(html).not.toContain('<script>alert("xss")</script>');
-    expect(html).toContain("&lt;script&gt;");
+    expect(html).toContain('<div id="root">');
+    expect(html).toContain("<!doctype html>");
   });
 
   it("returns 200 status", async () => {
@@ -225,121 +224,6 @@ describe("adminPage", () => {
     const response = await app.fetch(request, env);
 
     expect(response.status).toBe(200);
-  });
-
-  it("uses sectioned layout instead of tabs", async () => {
-    const env = createMockBindings({ adminToken: "test-token" });
-    const request = createRequest("/admin", { token: "test-token" });
-
-    const response = await app.fetch(request, env);
-    const html = await response.text();
-
-    // Should have sections, not tabs
-    expect(html).toContain("tokens-section");
-    expect(html).toContain("providers-section");
-    expect(html).toContain("settings-section");
-    expect(html).toContain("json-section");
-    // Should not have tab navigation
-    expect(html).not.toContain("switchView('visual')");
-    expect(html).not.toContain("switchView('tokens')");
-  });
-
-  it("includes provider modal", async () => {
-    const env = createMockBindings({ adminToken: "test-token" });
-    const request = createRequest("/admin", { token: "test-token" });
-
-    const response = await app.fetch(request, env);
-    const html = await response.text();
-
-    expect(html).toContain("providerModal");
-    expect(html).toContain("Test Connection");
-  });
-
-  it("does not include authHeader input in provider modal", async () => {
-    const env = createMockBindings({ adminToken: "test-token" });
-    const request = createRequest("/admin", { token: "test-token" });
-
-    const response = await app.fetch(request, env);
-    const html = await response.text();
-
-    expect(html).not.toContain("providerAuthHeader");
-    expect(html).not.toContain("Auth Header");
-  });
-
-  it("uses select dropdown for model mapping source models", async () => {
-    const env = createMockBindings({ adminToken: "test-token" });
-    const request = createRequest("/admin", { token: "test-token" });
-
-    const response = await app.fetch(request, env);
-    const html = await response.text();
-
-    // Should define CLAUDE_MODELS array in JS
-    expect(html).toContain("CLAUDE_MODELS");
-    expect(html).toContain("claude-sonnet-4-5-20250929");
-    expect(html).toContain("claude-opus-4-20250514");
-    expect(html).toContain("claude-haiku-4-5-20251001");
-    // renderModelMappings should use <select> not <input> for source
-    expect(html).toContain("<select");
-    expect(html).toContain("Select model");
-  });
-
-  it("does not show Auth: in provider card meta", async () => {
-    const env = createMockBindings({
-      adminToken: "test-token",
-      kvData: { providers: JSON.stringify([validProvider]) },
-    });
-    const request = createRequest("/admin", { token: "test-token" });
-
-    const response = await app.fetch(request, env);
-    const html = await response.text();
-
-    // The card meta should not show Auth: prefix
-    expect(html).not.toContain("'Auth: '");
-  });
-
-  it("includes drag-and-drop support on provider cards", async () => {
-    const env = createMockBindings({
-      adminToken: "test-token",
-      kvData: { providers: JSON.stringify([validProvider]) },
-    });
-    const request = createRequest("/admin", { token: "test-token" });
-
-    const response = await app.fetch(request, env);
-    const html = await response.text();
-
-    expect(html).toContain('draggable="true"');
-    expect(html).toContain("onDragStart");
-    expect(html).toContain("onDrop");
-    expect(html).toContain("drag-handle");
-    expect(html).toContain("priority-badge");
-  });
-
-  it("includes toggle switch for provider enable/disable", async () => {
-    const env = createMockBindings({
-      adminToken: "test-token",
-      kvData: { providers: JSON.stringify(multipleProviders) },
-    });
-    const request = createRequest("/admin", { token: "test-token" });
-
-    const response = await app.fetch(request, env);
-    const html = await response.text();
-
-    expect(html).toContain("toggle-switch");
-    expect(html).toContain("toggleProvider");
-    expect(html).toContain("toggleAnthropicPrimary");
-    expect(html).toContain("reorderProvider");
-  });
-
-  it("includes touch drag support", async () => {
-    const env = createMockBindings({ adminToken: "test-token" });
-    const request = createRequest("/admin", { token: "test-token" });
-
-    const response = await app.fetch(request, env);
-    const html = await response.text();
-
-    expect(html).toContain("onTouchStart");
-    expect(html).toContain("onTouchMove");
-    expect(html).toContain("onTouchEnd");
   });
 });
 
@@ -968,6 +852,150 @@ describe("testProvider API", () => {
     const request = createRequest("/admin/test-provider", {
       method: "POST",
       body: validProvider,
+    });
+
+    const response = await app.fetch(request, env);
+
+    expect(response.status).toBe(401);
+  });
+});
+
+describe("getProviderStates", () => {
+  let app: Hono<{ Bindings: Bindings }>;
+
+  beforeEach(() => {
+    app = createTestApp();
+  });
+
+  it("returns empty states when no provider state exists in KV", async () => {
+    const env = createMockBindings({
+      adminToken: "test-token",
+      kvData: {
+        providers: JSON.stringify([validProvider]),
+      },
+    });
+    const request = createRequest("/admin/provider-states", {
+      token: "test-token",
+    });
+
+    const response = await app.fetch(request, env);
+    const data = (await response.json()) as Record<
+      string,
+      { consecutiveFailures: number; cooldownUntil: number | null }
+    >;
+
+    expect(response.status).toBe(200);
+    // Should include anthropic-primary and the configured provider
+    expect(data["anthropic-primary"]).toEqual({
+      consecutiveFailures: 0,
+      lastFailure: null,
+      lastSuccess: null,
+      cooldownUntil: null,
+    });
+    expect(data[validProvider.name]).toEqual({
+      consecutiveFailures: 0,
+      lastFailure: null,
+      lastSuccess: null,
+      cooldownUntil: null,
+    });
+  });
+
+  it("returns actual state when provider has failures", async () => {
+    const providerState = {
+      consecutiveFailures: 5,
+      lastFailure: 1700000000000,
+      lastSuccess: 1699999000000,
+      cooldownUntil: 1700000060000,
+    };
+    const env = createMockBindings({
+      adminToken: "test-token",
+      kvData: {
+        providers: JSON.stringify([validProvider]),
+        "provider-state:openrouter": JSON.stringify(providerState),
+      },
+    });
+    const request = createRequest("/admin/provider-states", {
+      token: "test-token",
+    });
+
+    const response = await app.fetch(request, env);
+    const data = (await response.json()) as Record<
+      string,
+      {
+        consecutiveFailures: number;
+        lastFailure: number | null;
+        lastSuccess: number | null;
+        cooldownUntil: number | null;
+      }
+    >;
+
+    expect(response.status).toBe(200);
+    expect(data["openrouter"]).toEqual(providerState);
+    // anthropic-primary should still have default state
+    expect(data["anthropic-primary"]).toEqual({
+      consecutiveFailures: 0,
+      lastFailure: null,
+      lastSuccess: null,
+      cooldownUntil: null,
+    });
+  });
+
+  it("requires authentication", async () => {
+    const env = createMockBindings({ adminToken: "test-token" });
+    const request = createRequest("/admin/provider-states");
+
+    const response = await app.fetch(request, env);
+
+    expect(response.status).toBe(401);
+  });
+});
+
+describe("resetProviderState", () => {
+  let app: Hono<{ Bindings: Bindings }>;
+
+  beforeEach(() => {
+    app = createTestApp();
+  });
+
+  it("resets provider state to defaults", async () => {
+    const failedState = {
+      consecutiveFailures: 5,
+      lastFailure: 1700000000000,
+      lastSuccess: 1699999000000,
+      cooldownUntil: 1700000060000,
+    };
+    const env = createMockBindings({
+      adminToken: "test-token",
+      kvData: {
+        providers: JSON.stringify([validProvider]),
+        "provider-state:openrouter": JSON.stringify(failedState),
+      },
+    });
+    const request = createRequest("/admin/provider-states/openrouter/reset", {
+      method: "POST",
+      token: "test-token",
+    });
+
+    const response = await app.fetch(request, env);
+
+    expect(response.status).toBe(200);
+    const data = await response.json();
+    expect(data).toEqual({ success: true });
+
+    // Verify state was reset in KV
+    const resetState = await env.CONFIG_KV.get("provider-state:openrouter");
+    expect(JSON.parse(resetState!)).toEqual({
+      consecutiveFailures: 0,
+      lastFailure: null,
+      lastSuccess: null,
+      cooldownUntil: null,
+    });
+  });
+
+  it("requires authentication", async () => {
+    const env = createMockBindings({ adminToken: "test-token" });
+    const request = createRequest("/admin/provider-states/openrouter/reset", {
+      method: "POST",
     });
 
     const response = await app.fetch(request, env);

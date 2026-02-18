@@ -5,11 +5,12 @@
   "type": "module",
   "scripts": {
     "dev": "wrangler dev",
-    "deploy": "wrangler deploy",
+    "deploy": "npm run build:frontend && wrangler deploy",
+    "build:frontend": "bash scripts/build-frontend.sh",
     "tail": "wrangler tail",
-    "test": "vitest run",
+    "test": "vitest run --reporter=verbose",
     "test:watch": "vitest",
-    "test:coverage": "vitest run --coverage"
+    "test:coverage": "vitest run --coverage --reporter=verbose"
   },
   "repository": {
     "type": "git",

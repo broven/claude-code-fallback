@@ -10,6 +10,7 @@ export interface ProviderConfig {
   modelMapping?: Record<string, string>;
   format?: "anthropic" | "openai";
   disabled?: boolean;
+  retry?: number;
 }
 
 /**
@@ -19,6 +20,8 @@ export interface TokenConfig {
   token: string;
   note?: string;
 }
+
+import type { RectifierConfig } from "./types/rectifier";
 
 /**
  * Application configuration
@@ -30,6 +33,7 @@ export interface AppConfig {
   tokenConfigs: TokenConfig[];
   cooldownDuration: number;
   anthropicPrimaryDisabled: boolean;
+  rectifier: RectifierConfig;
 }
 
 /**
@@ -40,4 +44,14 @@ export interface Bindings {
   ADMIN_TOKEN: string;
   CONFIG_KV: KVNamespace;
   COOLDOWN_DURATION?: string; // Optional, default to 300s
+}
+
+/**
+ * Provider circuit breaker state stored in KV
+ */
+export interface ProviderState {
+  consecutiveFailures: number;
+  lastFailure: number | null;
+  lastSuccess: number | null;
+  cooldownUntil: number | null;
 }

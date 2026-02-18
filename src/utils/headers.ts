@@ -12,12 +12,36 @@ export function filterHeaders(
 }
 
 /**
+ * Filter out debug headers and other unsafe request headers before forwarding.
+ */
+export function cleanRequestHeaders(
+  headers: Record<string, string>,
+): Record<string, string> {
+  return filterHeaders(headers, [
+    "x-ccf-debug-skip-anthropic",
+    "x-ccfallback-debug-skip-anthropic",
+    "x-ccf-api-key",
+    "host",
+    "accept-encoding",
+    "content-length",
+    "connection",
+    "keep-alive",
+    "te",
+    "trailer",
+    "transfer-encoding",
+    "upgrade",
+  ]);
+}
+
+/**
  * Filter out debug headers before forwarding to upstream.
+ * @deprecated Use cleanRequestHeaders instead
  */
 export function filterHeadersDebugOption(
   headers: Record<string, string>,
 ): Record<string, string> {
   return filterHeaders(headers, [
+    "x-ccf-debug-skip-anthropic",
     "x-ccfallback-debug-skip-anthropic",
     "x-ccf-api-key",
   ]);

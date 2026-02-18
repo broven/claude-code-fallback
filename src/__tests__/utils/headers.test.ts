@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   filterHeaders,
   filterHeadersDebugOption,
+  cleanRequestHeaders,
   cleanHeaders,
 } from '../../utils/headers';
 
@@ -142,6 +143,23 @@ describe('filterHeadersDebugOption', () => {
     expect(result).toEqual({
       'Content-Type': 'application/json',
     });
+  });
+});
+
+describe('cleanRequestHeaders', () => {
+  it('removes current and legacy debug skip headers', () => {
+    const headers = {
+      'content-type': 'application/json',
+      'x-ccf-debug-skip-anthropic': '1',
+      'x-ccfallback-debug-skip-anthropic': '1',
+      'anthropic-version': '2023-06-01',
+    };
+
+    const result = cleanRequestHeaders(headers);
+
+    expect(result['x-ccf-debug-skip-anthropic']).toBeUndefined();
+    expect(result['x-ccfallback-debug-skip-anthropic']).toBeUndefined();
+    expect(result['anthropic-version']).toBe('2023-06-01');
   });
 });
 
@@ -310,13 +328,13 @@ describe('cleanHeaders', () => {
     it('preserves custom headers', () => {
       const headers = createHeaders({
         'x-custom-header': 'custom-value',
-        'x-request-id': '123456',
+        'ccr-request-id': '123456',
       });
 
       const result = cleanHeaders(headers);
 
       expect(result['x-custom-header']).toBe('custom-value');
-      expect(result['x-request-id']).toBe('123456');
+      expect(result['ccr-request-id']).toBe('123456');
     });
   });
 

@@ -8,3 +8,4 @@ providers.yaml
 .claude/
 .env
 .wrangler/
+.dev.vars
