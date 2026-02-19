@@ -6,6 +6,7 @@ import {
   convertOpenAIResponseToAnthropic,
   convertOpenAIStreamToAnthropic,
 } from './format-converter';
+import { cleanToolSchemasForGeminiRequest } from './clean-for-gemini';
 import {
   shouldRectifyThinkingSignature,
   rectifyAnthropicRequest,
@@ -68,6 +69,12 @@ export async function tryProvider(
       // Convert request format if provider uses OpenAI format
       if (format === 'openai') {
         requestBody = convertAnthropicToOpenAI(requestBody);
+      }
+
+      // Gemini providers can reject a subset of JSON Schema keywords.
+      // Clean tool schemas regardless of provider request format.
+      if (name.toLowerCase().includes('gemini')) {
+        requestBody = cleanToolSchemasForGeminiRequest(requestBody);
       }
 
       // Headers to exclude from forwarding
