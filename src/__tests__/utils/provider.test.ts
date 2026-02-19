@@ -604,5 +604,95 @@ describe("tryProvider", () => {
       // Error responses should be passed through without conversion
       expect(result.status).toBe(429);
     });
+
+    it("cleans tool schema for gemini-named OpenAI providers", async () => {
+      const mockFetch = vi
+        .fn()
+        .mockResolvedValue(
+          createMockResponse(openaiSuccessResponse, { status: 200 }),
+        );
+      globalThis.fetch = mockFetch;
+
+      const geminiProvider = {
+        ...openaiFormatProvider,
+        name: "gemini-openai-gateway",
+      };
+
+      await tryProvider(
+        geminiProvider,
+        {
+          ...validMessageRequest,
+          tools: [
+            {
+              name: "search_docs",
+              description: "Search docs",
+              input_schema: {
+                type: "object",
+                additionalProperties: false,
+                properties: {
+                  query: {
+                    type: "string",
+                    minLength: 1,
+                  },
+                },
+                required: ["query"],
+              },
+            },
+          ],
+        },
+        validHeaders,
+        defaultConfig,
+      );
+
+      const requestBody = JSON.parse(mockFetch.mock.calls[0][1].body as string);
+      const parameters = requestBody.tools[0].function.parameters;
+
+      expect(parameters.additionalProperties).toBeUndefined();
+      expect(parameters.properties.query.minLength).toBeUndefined();
+    });
+  });
+
+  describe("Gemini schema cleanup", () => {
+    it("cleans tool schema for gemini-named Anthropic providers", async () => {
+      const mockFetch = vi.fn().mockResolvedValue(createSuccessResponse());
+      globalThis.fetch = mockFetch;
+
+      const geminiProvider = {
+        ...minimalProvider,
+        name: "gemini-anthropic-proxy",
+      };
+
+      await tryProvider(
+        geminiProvider,
+        {
+          ...validMessageRequest,
+          tools: [
+            {
+              name: "search_docs",
+              description: "Search docs",
+              input_schema: {
+                type: "object",
+                additionalProperties: false,
+                properties: {
+                  query: {
+                    type: "string",
+                    minLength: 1,
+                  },
+                },
+                required: ["query"],
+              },
+            },
+          ],
+        },
+        validHeaders,
+        defaultConfig,
+      );
+
+      const requestBody = JSON.parse(mockFetch.mock.calls[0][1].body as string);
+      const inputSchema = requestBody.tools[0].input_schema;
+
+      expect(inputSchema.additionalProperties).toBeUndefined();
+      expect(inputSchema.properties.query.minLength).toBeUndefined();
+    });
   });
 });
