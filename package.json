@@ -32,7 +32,7 @@
   },
   "homepage": "https://github.com/broven/claude-code-fallback#readme",
   "dependencies": {
-    "hono": "^4.11.5"
+    "hono": "^4.11.10"
   },
   "devDependencies": {
     "@cloudflare/vitest-pool-workers": "^0.12.10",
