@@ -12,6 +12,13 @@ When using Claude Code or other Anthropic API clients, you might encounter:
 - **Service errors (5xx)** — Temporary Anthropic API downtime
 Instead of manually switching between providers, this proxy automatically fails over to your configured alternatives.
 
+## ⚠️ Important Notice
+
+**Use at your own risk.** I have not reviewed Anthropic's Terms of Service to confirm whether using a proxy is permitted. There is a possibility that using this proxy could violate their terms and result in account suspension.
+
+**Current status:** I've been using this proxy personally without issues, but that doesn't guarantee it's safe for all users. Please review [Anthropic's Terms of Service](https://www.anthropic.com/legal/consumer-terms) yourself before deploying, and use this tool at your own discretion.
+
+
 ## How It Works
 
 ```
@@ -38,7 +45,6 @@ The proxy intercepts API requests. On 400 errors, the **Rectifier** automaticall
 - **Provider Retry with Exponential Backoff** — Configurable per-provider retry count with exponential delay
 - **Prompt Cache Optimization** — Strips volatile billing header parameters to improve Anthropic prompt cache hit rates
 
-[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/broven/claude-code-fallback)
 
 ### Fallback Strategy
 
@@ -85,11 +91,6 @@ Fallback providers using the OpenAI Chat Completions API format are supported na
 
 Set `format: "openai"` on your provider config to enable automatic conversion.
 
-## ⚠️ Important Notice
-
-**Use at your own risk.** I have not reviewed Anthropic's Terms of Service to confirm whether using a proxy is permitted. There is a possibility that using this proxy could violate their terms and result in account suspension.
-
-**Current status:** I've been using this proxy personally without issues, but that doesn't guarantee it's safe for all users. Please review [Anthropic's Terms of Service](https://www.anthropic.com/legal/consumer-terms) yourself before deploying, and use this tool at your own discretion.
 
 ## Quick Start
 
